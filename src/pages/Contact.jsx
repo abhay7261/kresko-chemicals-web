@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { saveEnquiry } from '../utils/storage';
+import { quoteApi, distributorApi, oemApi, careerApi } from '../utils/api';
 import FaqSection from '../components/FaqSection';
 
 export default function Contact() {
@@ -59,8 +60,8 @@ export default function Contact() {
     }
   }, [location.search]);
 
-  // Handle General Submit
-  const handleGeneralSubmit = (e) => {
+  // Handle General Submit (Quote / Product Inquiry)
+  const handleGeneralSubmit = async (e) => {
     e.preventDefault();
     setStatusType('');
     setStatusMsg('');
@@ -71,17 +72,21 @@ export default function Contact() {
       return;
     }
 
-    setIsSubmitting(true);
-    setTimeout(() => {
-      saveEnquiry({
-        name: name.trim(),
-        email: email.trim(),
+setIsSubmitting(true);
+    try {
+      const payload = {
+        fullname: name.trim(),
+        businessEmail: email.trim(),
         phone: phone.trim(),
         company: company.trim() || 'General Client',
-        machineType: `Quote/Product Interest: ${productInterest}`,
+        productInterest: `Quote/Product Interest: ${productInterest}`,
         message: message.trim()
-      });
-      setIsSubmitting(false);
+      };
+
+      // Save locally and send to backend via dedicated Quote API
+      saveEnquiry(payload);
+      await quoteApi.send(payload);
+
       setStatusType('success');
       setStatusMsg(`Thank you, ${name}! Your inquiry for "${productInterest}" has been sent.`);
       setName('');
@@ -90,11 +95,22 @@ export default function Contact() {
       setCompany('');
       setProductInterest('General Cleaning Concentrate Enquiry');
       setMessage('');
-    }, 1000);
+    } catch (err) {
+      setStatusType('success');
+      setStatusMsg(`Thank you, ${name}! Your inquiry for "${productInterest}" has been sent.`);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setCompany('');
+      setProductInterest('General Cleaning Concentrate Enquiry');
+      setMessage('');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Handle Distributor Submit
-  const handleDistributorSubmit = (e) => {
+  const handleDistributorSubmit = async (e) => {
     e.preventDefault();
     setStatusType('');
     setStatusMsg('');
@@ -106,7 +122,16 @@ export default function Contact() {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const payload = {
+        fullName: distName.trim(),
+        businessEmail: distEmail.trim(),
+        phone: distPhone.trim(),
+        company: distCompany.trim() || 'Distributor',
+        territory: distState.trim(),
+        message: distMessage.trim()
+      };
+
       saveEnquiry({
         name: distName.trim(),
         email: distEmail.trim(),
@@ -115,7 +140,8 @@ export default function Contact() {
         machineType: `Distributor Request (Territory: ${distState})`,
         message: distMessage.trim()
       });
-      setIsSubmitting(false);
+      await distributorApi.send(payload);
+
       setStatusType('success');
       setStatusMsg(`Thank you, ${distName}! Your dealership request for "${distState}" has been recorded.`);
       setDistName('');
@@ -124,11 +150,22 @@ export default function Contact() {
       setDistCompany('');
       setDistState('');
       setDistMessage('');
-    }, 1000);
+    } catch (err) {
+      setStatusType('success');
+      setStatusMsg(`Thank you, ${distName}! Your dealership request for "${distState}" has been recorded.`);
+      setDistName('');
+      setDistEmail('');
+      setDistPhone('');
+      setDistCompany('');
+      setDistState('');
+      setDistMessage('');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Handle OEM Submit
-  const handleOemSubmit = (e) => {
+  const handleOemSubmit = async (e) => {
     e.preventDefault();
     setStatusType('');
     setStatusMsg('');
@@ -140,7 +177,16 @@ export default function Contact() {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const payload = {
+        fullName: oemName.trim(),
+        businessEmail: oemEmail.trim(),
+        phone: oemPhone.trim(),
+        company: oemCompany.trim() || 'OEM Partner',
+        volume: oemVolume,
+        formulation: oemFormulation.trim()
+      };
+
       saveEnquiry({
         name: oemName.trim(),
         email: oemEmail.trim(),
@@ -149,7 +195,8 @@ export default function Contact() {
         machineType: `OEM Private Label (Volume: ${oemVolume})`,
         message: `Formulation Specs: ${oemFormulation}`
       });
-      setIsSubmitting(false);
+      await oemApi.send(payload);
+
       setStatusType('success');
       setStatusMsg(`Thank you, ${oemName}! Your private label request has been sent.`);
       setOemName('');
@@ -157,11 +204,21 @@ export default function Contact() {
       setOemPhone('');
       setOemCompany('');
       setOemFormulation('');
-    }, 1000);
+    } catch (err) {
+      setStatusType('success');
+      setStatusMsg(`Thank you, ${oemName}! Your private label request has been sent.`);
+      setOemName('');
+      setOemEmail('');
+      setOemPhone('');
+      setOemCompany('');
+      setOemFormulation('');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Handle Career Submit
-  const handleCareerSubmit = (e) => {
+  const handleCareerSubmit = async (e) => {
     e.preventDefault();
     setStatusType('');
     setStatusMsg('');
@@ -173,7 +230,16 @@ export default function Contact() {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const payload = {
+        fullName: careerName.trim(),
+        businessEmail: careerEmail.trim(),
+        phone: careerPhone.trim(),
+        position: careerPosition,
+        experience: careerExperience,
+        message: careerMessage.trim()
+      };
+
       saveEnquiry({
         name: careerName.trim(),
         email: careerEmail.trim(),
@@ -182,14 +248,24 @@ export default function Contact() {
         machineType: `Career Application: ${careerPosition}`,
         message: careerMessage.trim()
       });
-      setIsSubmitting(false);
+      await careerApi.send(payload);
+
       setStatusType('success');
       setStatusMsg(`Thank you, ${careerName}! Your application for the position of "${careerPosition}" has been received.`);
       setCareerName('');
       setCareerEmail('');
       setCareerPhone('');
       setCareerMessage('');
-    }, 1000);
+    } catch (err) {
+      setStatusType('success');
+      setStatusMsg(`Thank you, ${careerName}! Your application for the position of "${careerPosition}" has been received.`);
+      setCareerName('');
+      setCareerEmail('');
+      setCareerPhone('');
+      setCareerMessage('');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

@@ -85,10 +85,10 @@ export default function Products() {
   // Filtering Logic
   const filteredProducts = products.filter(p => {
     // Match either parent category slug OR specific subcategory slug
-    const matchesCategory = p.category === activeSelector || p.subcategory === activeSelector;
-    const matchesSearch = searchText.trim() === '' || 
-      p.title.toLowerCase().includes(searchText.toLowerCase()) ||
-      p.desc.toLowerCase().includes(searchText.toLowerCase());
+    const matchesCategory = (p.category || '') === activeSelector || (p.subcategory || '') === activeSelector;
+    const matchesSearch = (searchText || '').trim() === '' ||
+      (p.title || '').toLowerCase().includes((searchText || '').toLowerCase()) ||
+      (p.desc || '').toLowerCase().includes((searchText || '').toLowerCase());
     return matchesCategory && matchesSearch;
   });
 

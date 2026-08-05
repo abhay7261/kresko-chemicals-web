@@ -30,8 +30,8 @@ export default function Blog() {
 
   // Filter Logic
   const filteredPosts = blogPosts.filter(p => {
-    const matchesCategory = activeFilter === 'all' || p.category === activeFilter;
-    const matchesSearch = p.title.toLowerCase().includes(searchText.toLowerCase().trim());
+    const matchesCategory = activeFilter === 'all' || (p.category || '') === activeFilter;
+    const matchesSearch = (p.title || '').toLowerCase().includes((searchText || '').toLowerCase().trim());
     return matchesCategory && matchesSearch;
   });
 

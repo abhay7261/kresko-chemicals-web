@@ -1,3 +1,11 @@
+// Centralized API configuration
+import {
+  inquiryApi,
+  categoriesApi,
+  productsApi,
+  resolveImageUrl,
+} from './api';
+
 // Product Category and Subcategory Mapping matching Tab 4 layout
 export const PRODUCT_CATEGORIES = {};
 
@@ -9,8 +17,9 @@ function populateProductDetails(p) {
   // Dynamic realistic image path mapping based on category and product title
   let imagePath = '';
   const cat = (p.category || '').toLowerCase();
+  const pId = (p.id || '').toLowerCase();
   if (cat.includes('floor')) {
-    if (p.id.includes('phenyl') || p.id.includes('black') || p.id.includes('pvl') || p.id.includes('psv') || p.id.includes('pscv') || pTitle.includes('phenyl')) {
+    if (pId.includes('phenyl') || pId.includes('black') || pId.includes('pvl') || pId.includes('psv') || pId.includes('pscv') || pTitle.includes('phenyl')) {
       imagePath = '/images/products/white_phenyl_drum.png';
     } else {
       imagePath = '/images/products/floor_cleaner_purple.png';
@@ -21,7 +30,7 @@ function populateProductDetails(p) {
     imagePath = '/images/products/laundry_detergent_blue.png';
   } else if (cat.includes('kitchen')) {
     imagePath = '/images/products/dishwash_gel_yellow.png';
-  } else if (cat.includes('bathroom') || cat.includes('toilet') || p.id.includes('toilet') || pTitle.includes('toilet')) {
+  } else if (cat.includes('bathroom') || cat.includes('toilet') || pId.includes('toilet') || pTitle.includes('toilet')) {
     imagePath = '/images/products/toilet_cleaner_blue.png';
   } else if (cat.includes('pest') || cat.includes('air') || cat.includes('glass')) {
     imagePath = '/images/products/spray_bottle_repellent.png';
@@ -118,18 +127,18 @@ function populateProductDetails(p) {
   else if (pTitle.includes('lemon') || pTitle.includes('citrus')) odor = 'Zesty Citrus Lemon Scent';
   else if (pTitle.includes('strawberry')) odor = 'Fruity Strawberry Scent';
   else if (pTitle.includes('citronella') || pTitle.includes('grass')) odor = 'Herbal Citronella & Lemongrass Insect Repelling Scent';
-  else if (pTitle.includes('pine') || pTitle.includes('phenyl') || p.id.includes('phenyl')) odor = 'Strong Refreshing Pine Oil Scent';
+  else if (pTitle.includes('pine') || pTitle.includes('phenyl') || pId.includes('phenyl')) odor = 'Strong Refreshing Pine Oil Scent';
 
   // 5. Appearance
   let appearance = 'Viscous Colored Liquid';
   if (pTitle.includes('transparent')) appearance = 'Water-Clear Transparent Liquid';
-  else if (pTitle.includes('milky') || pTitle.includes('phenyl') || p.id.includes('phenyl') || p.id.includes('pvl') || p.id.includes('psv') || p.id.includes('pscv')) {
+  else if (pTitle.includes('milky') || pTitle.includes('phenyl') || pId.includes('phenyl') || pId.includes('pvl') || pId.includes('psv') || pId.includes('pscv')) {
     appearance = 'Milky White Emulsion';
   } else if (pTitle.includes('black')) appearance = 'Dark Black Opaque Liquid';
-  else if (pTitle.includes('blue') || p.id.includes('blue')) appearance = 'Ocean Blue Viscous Liquid';
+  else if (pTitle.includes('blue') || pId.includes('blue')) appearance = 'Ocean Blue Viscous Liquid';
   else if (pTitle.includes('red') || pTitle.includes('rose')) appearance = 'Crimson Red Viscous Liquid';
   else if (pTitle.includes('green')) appearance = 'Dark Green Viscous Liquid';
-  else if (pTitle.includes('pearl') || pTitle.includes('passion') || p.id.endsWith('-p')) appearance = 'Pearlescent Viscous Liquid';
+  else if (pTitle.includes('pearl') || pTitle.includes('passion') || pId.endsWith('-p')) appearance = 'Pearlescent Viscous Liquid';
   else if (pTitle.includes('powder')) appearance = 'Fine Free-Flowing Powder';
   else if (pTitle.includes('cake')) appearance = 'Solid Deodorizing Block / Cake';
 
@@ -305,6 +314,18 @@ export function getReviews() {
   }
 }
 
+export function saveReview(review) {
+  const reviews = getReviews();
+  const newReview = {
+    ...review,
+    id: review.id || `rev-${Date.now()}`,
+    avatar: review.avatar || ''
+  };
+  reviews.unshift(newReview);
+  localStorage.setItem(LOCAL_STORAGE_REVIEWS, JSON.stringify(reviews));
+  return newReview;
+}
+
 export function deleteReview(id) {
   const reviews = getReviews();
   const filtered = reviews.filter(r => r.id !== id);
@@ -358,7 +379,7 @@ export async function saveEnquiry(enquiry) {
   enquiries.unshift(newEnquiry);
   localStorage.setItem(LOCAL_STORAGE_ENQUIRIES, JSON.stringify(enquiries));
 
-  // Send POST request to live backend API endpoint with exact Mongoose schema fields
+  // Send POST request to backend via centralized API client
   try {
     const payload = {
       fullName: enquiry.fullName || enquiry.name || 'Anonymous Inquiry',
@@ -369,22 +390,10 @@ export async function saveEnquiry(enquiry) {
       message: enquiry.message || enquiry.desc || enquiry.state || 'General B2B Product Inquiry'
     };
 
-    const response = await fetch('https://kreskobackend.onrender.com/api/inquiry/send', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (response.ok) {
-      const resData = await response.json();
-      console.log('Inquiry successfully saved to backend database! Response:', resData);
-    } else {
-      console.warn('Backend inquiry API returned non-OK status:', response.status);
-    }
+    const resData = await inquiryApi.send(payload);
+    console.log('Inquiry successfully saved to backend database! Response:', resData);
   } catch (err) {
-    console.warn('Backend inquiry API request error:', err);
+    console.warn('Backend inquiry API request error:', err.message || err);
   }
 
   return newEnquiry;
@@ -395,32 +404,12 @@ export async function deleteEnquiry(id) {
   const filtered = enquiries.filter(item => item.id !== id && item._id !== id);
   localStorage.setItem(LOCAL_STORAGE_ENQUIRIES, JSON.stringify(filtered));
 
-  // Retrieve admin token from session storage if logged in
-  const adminToken = sessionStorage.getItem('adminToken') || '';
-
-  // Send DELETE HTTP request to live backend API endpoint with auth headers
+  // Delete from backend via centralized API client (auth handled by interceptor)
   try {
-    const headers = {
-      'Content-Type': 'application/json'
-    };
-    if (adminToken) {
-      headers['Authorization'] = `Bearer ${adminToken}`;
-      headers['x-auth-token'] = adminToken;
-    }
-
-    const res = await fetch(`https://kreskobackend.onrender.com/api/inquiry/${id}`, {
-      method: 'DELETE',
-      headers: headers
-    });
-
-    if (res.ok) {
-      console.log(`Inquiry ${id} successfully deleted from backend database.`);
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      console.warn(`Backend inquiry delete API returned status: ${res.status}`, errData);
-    }
+    await inquiryApi.delete(id);
+    console.log(`Inquiry ${id} successfully deleted from backend database.`);
   } catch (e) {
-    console.warn('Backend inquiry delete API error:', e);
+    console.warn('Backend inquiry delete API error:', e.message || e);
   }
 
   return filtered;
@@ -481,10 +470,8 @@ export function saveProductCategories(categories) {
 
 export async function syncCategoriesWithBackend() {
   try {
-    const res = await fetch('https://kreskobackend.onrender.com/api/categories');
-    if (res.ok) {
-      const data = await res.json();
-      if (data) {
+    const data = await categoriesApi.getAll();
+    if (data) {
         // Start with default hardcoded categories
         const parsed = { ...PRODUCT_CATEGORIES };
         
@@ -502,26 +489,30 @@ export async function syncCategoriesWithBackend() {
         });
 
         // Merge with backend API categories
+        // Backend returns: { categoryName, uniqueKey, categoryImage, _id }
         if (Array.isArray(data)) {
           data.forEach(item => {
-            if (item && item.key) {
-              parsed[item.key] = {
-                ...parsed[item.key],
-                name: item.name || (parsed[item.key] ? parsed[item.key].name : ''),
-                icon: item.icon || (parsed[item.key] ? parsed[item.key].icon : 'fa-sparkles'),
+            const key = item.uniqueKey || item.key || (item._id ? item._id : '');
+            if (item && key) {
+              parsed[key] = {
+                ...parsed[key],
+                name: item.categoryName || item.name || (parsed[key] ? parsed[key].name : ''),
+                icon: item.categoryImage || item.icon || (parsed[key] ? parsed[key].icon : 'fa-sparkles'),
+                _id: item._id || (parsed[key] ? parsed[key]._id : ''),
                 subcategories: {
-                  ...(parsed[item.key] ? parsed[item.key].subcategories : {}),
+                  ...(parsed[key] ? parsed[key].subcategories : {}),
                   ...(item.subcategories || {})
                 }
               };
             }
           });
-        } else if (typeof data === 'object') {
+        } else if (typeof data === 'object' && data !== null) {
           Object.entries(data).forEach(([key, val]) => {
             parsed[key] = {
               ...parsed[key],
-              name: val.name || (parsed[key] ? parsed[key].name : ''),
-              icon: val.icon || (parsed[key] ? parsed[key].icon : 'fa-sparkles'),
+              name: val.categoryName || val.name || (parsed[key] ? parsed[key].name : ''),
+              icon: val.categoryImage || val.icon || (parsed[key] ? parsed[key].icon : 'fa-sparkles'),
+              _id: val._id || (parsed[key] ? parsed[key]._id : ''),
               subcategories: {
                 ...(parsed[key] ? parsed[key].subcategories : {}),
                 ...(val.subcategories || {})
@@ -532,44 +523,40 @@ export async function syncCategoriesWithBackend() {
 
         saveProductCategories(parsed);
         return parsed;
-      }
     }
   } catch (err) {
-    console.warn('Backend categories sync failed:', err);
+    console.warn('Backend categories sync failed:', err.message || err);
   }
   return null;
 }
 
 export async function syncProductsWithBackend() {
   try {
-    const res = await fetch('https://kreskobackend.onrender.com/api/products');
-    if (res.ok) {
-      const data = await res.json();
-      const productList = Array.isArray(data) ? data : (data.products || []);
-      
-      const mapped = productList.map(bp => {
-        const imageUrl = bp.image ? (bp.image.startsWith('http') ? bp.image : `https://kreskobackend.onrender.com/uploads/${bp.image}`) : '/images/product_placeholder.jpg';
-        return {
-          id: bp._id || bp.id || `backend-${Date.now()}`,
-          _id: bp._id,
-          title: bp.name || bp.title || 'Concentrated Chemical Formulation',
-          name: bp.name || bp.title,
-          category: bp.category || 'home-care',
-          price: bp.price ? `Rs. ${bp.price} / Kg` : 'Rs. 180 / Kg',
-          image: imageUrl,
-          images: [imageUrl],
-          desc: bp.description || bp.desc || 'High activity industrial chemical concentrate formulation.',
-          dilution: bp.dilution || '1 + 5',
-          minPack: bp.minPack || '30 Kg',
-          rateAfter: bp.rateAfter || 'Rs. 30.00 / Litre'
-        };
-      });
+    const data = await productsApi.getAll();
+    const productList = Array.isArray(data) ? data : (data.products || []);
 
-      localStorage.setItem(LOCAL_STORAGE_PRODUCTS, JSON.stringify(mapped));
-      return mapped;
-    }
+    const mapped = productList.map(bp => {
+      const imageUrl = resolveImageUrl(bp.image);
+      return {
+        id: bp._id || bp.id || `backend-${Date.now()}`,
+        _id: bp._id,
+        title: bp.name || bp.title || 'Concentrated Chemical Formulation',
+        name: bp.name || bp.title,
+        category: bp.category || 'home-care',
+        price: bp.price ? `Rs. ${bp.price} / Kg` : 'Rs. 180 / Kg',
+        image: imageUrl,
+        images: [imageUrl],
+        desc: bp.description || bp.desc || 'High activity industrial chemical concentrate formulation.',
+        dilution: bp.dilution || '1 + 5',
+        minPack: bp.minPack || '30 Kg',
+        rateAfter: bp.rateAfter || 'Rs. 30.00 / Litre'
+      };
+    });
+
+    localStorage.setItem(LOCAL_STORAGE_PRODUCTS, JSON.stringify(mapped));
+    return mapped;
   } catch (err) {
-    console.warn('Backend products sync failed:', err);
+    console.warn('Backend products sync failed:', err.message || err);
   }
   return null;
 }

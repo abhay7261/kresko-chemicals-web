@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  getProducts, 
-  saveProduct, 
-  getBlogs, 
-  saveBlog, 
+import {
+  getProducts,
+  saveProduct,
+  getBlogs,
+  saveBlog,
   getEnquiries,
   deleteEnquiry,
   getAdminPassword,
@@ -18,6 +18,13 @@ import {
   getProductCategories,
   saveProductCategories
 } from '../utils/storage';
+import {
+  authApi,
+  productsApi,
+  categoriesApi,
+  blogsApi,
+  dataUrlToFile,
+} from '../utils/api';
 import ProductImage from '../components/ProductImage';
 
 export default function Admin() {
@@ -173,6 +180,7 @@ export default function Admin() {
   const [blogCategory, setBlogCategory] = useState('tech');
   const [blogDesc, setBlogDesc] = useState('');
   const [blogContent, setBlogContent] = useState('');
+  const [blogImage, setBlogImage] = useState(null); // File object for backend upload
   const [blogSuccess, setBlogSuccess] = useState('');
 
   // Form Field States - Password Change
@@ -203,43 +211,29 @@ export default function Admin() {
     setAuthError('');
 
     try {
-      const response = await fetch('https://kreskobackend.onrender.com/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          password: passwordInput
-        })
-      });
+      const data = await authApi.login(passwordInput);
 
-      const data = await response.json();
-
-      if (response.ok) {
-        setIsLocked(false);
-        setAuthError('');
-        setFailedAttempts(0);
-        setPasswordInput('');
-        sessionStorage.setItem('isAdminLoggedIn', 'true');
-        if (data.token) {
-          sessionStorage.setItem('adminToken', data.token);
-        }
-        window.dispatchEvent(new Event('adminLoginStatusChange'));
-      } else {
-        const nextFailed = failedAttempts + 1;
-        setFailedAttempts(nextFailed);
-        const errMsg = data.message || 'Authentication failed. Please verify credentials.';
-        
-        if (nextFailed >= 5) {
-          setLockoutTime(30);
-          setAuthError('Too many failed attempts. Login locked for 30 seconds.');
-        } else {
-          setAuthError(`${errMsg}. Attempt ${nextFailed}/5.`);
-        }
+      setIsLocked(false);
+      setAuthError('');
+      setFailedAttempts(0);
+      setPasswordInput('');
+      sessionStorage.setItem('isAdminLoggedIn', 'true');
+      if (data.token) {
+        sessionStorage.setItem('adminToken', data.token);
       }
+      window.dispatchEvent(new Event('adminLoginStatusChange'));
     } catch (error) {
       console.error('Login error:', error);
-      setAuthError('Unable to connect to the backend server. Please check your internet connection.');
+      const nextFailed = failedAttempts + 1;
+      setFailedAttempts(nextFailed);
+      const errMsg = error.message || 'Authentication failed. Please verify credentials.';
+
+      if (nextFailed >= 5) {
+        setLockoutTime(30);
+        setAuthError('Too many failed attempts. Login locked for 30 seconds.');
+      } else {
+        setAuthError(`${errMsg}. Attempt ${nextFailed}/5.`);
+      }
     }
   };
 
@@ -387,38 +381,29 @@ export default function Admin() {
     saveProduct(newProduct);
     setProducts(getProducts()); // Reload list
 
-    // Post to live backend endpoint using FormData matching Postman
+    // Upload to backend via centralized API client (auth handled by interceptor)
     try {
-      const token = sessionStorage.getItem('adminToken') || '';
-      const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-        headers['x-auth-token'] = token;
-      }
-
       const formData = new FormData();
       formData.append('name', prodTitle.trim());
       formData.append('price', prodPrice.trim());
       formData.append('category', prodCategory);
       formData.append('description', prodDesc.trim());
       if (prodImages && prodImages.length > 0) {
-        formData.append('image', prodImages[0]);
+        const firstImage = prodImages[0];
+        // If it's a data URL (from the file picker), convert to a File for multipart upload
+        const file =
+          typeof firstImage === 'string' && firstImage.startsWith('data:')
+            ? dataUrlToFile(firstImage, 'product')
+            : firstImage;
+        if (file) {
+          formData.append('image', file);
+        }
       }
 
-      const res = await fetch('https://kreskobackend.onrender.com/api/products/upload', {
-        method: 'POST',
-        headers,
-        body: formData
-      });
-
-      if (res.ok) {
-        console.log('Product uploaded to backend server successfully!');
-      } else {
-        const errJson = await res.json().catch(() => ({}));
-        console.warn('Backend product upload API status:', res.status, errJson);
-      }
+      await productsApi.upload(formData);
+      console.log('Product uploaded to backend server successfully!');
     } catch (err) {
-      console.warn('Backend product upload API error:', err);
+      console.warn('Backend product upload API error:', err.message || err);
     }
 
     setProdSuccess(`Product concentrate "${prodTitle}" added successfully! Redirecting to Concentrates page...`);
@@ -439,7 +424,7 @@ export default function Admin() {
   };
 
   // Add Blog Form submit
-  const handleBlogSubmit = (e) => {
+  const handleBlogSubmit = async (e) => {
     e.preventDefault();
     setBlogSuccess('');
 
@@ -468,12 +453,32 @@ export default function Admin() {
 
     saveBlog(newBlog);
     setBlogs(getBlogs()); // Reload list
+
+    // Upload to backend via POST /api/blogs/upload using FormData.
+    // The axios interceptor automatically attaches the Authorization Bearer token.
+    try {
+      const formData = new FormData();
+      formData.append('title', blogTitle.trim());
+      formData.append('description', blogDesc.trim());
+      formData.append('content', paragraphs.join('\n'));
+      formData.append('category', blogCategory);
+      if (blogImage) {
+        // If the selected image is a plain File object, append directly.
+        formData.append('image', blogImage);
+      }
+      await blogsApi.upload(formData);
+      console.log('Blog post uploaded to backend server successfully!');
+    } catch (err) {
+      console.warn('Backend blog upload API error:', err.message || err);
+    }
+
     setBlogSuccess(`Blog post "${blogTitle}" uploaded successfully! Redirecting to Blog page...`);
     
     // Reset fields
     setBlogTitle('');
     setBlogDesc('');
     setBlogContent('');
+    setBlogImage(null);
 
     setTimeout(() => {
       setBlogSuccess('');
@@ -527,34 +532,15 @@ export default function Admin() {
     setNewCatName('');
 
     try {
-      const token = sessionStorage.getItem('adminToken');
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-        headers['x-auth-token'] = token;
-      }
-      const response = await fetch('https://kreskobackend.onrender.com/api/categories/add', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          categoryName: updated[key].name,
-          uniqueKey: key,
-          categoryImage: updated[key].icon || 'https://res.cloudinary.com/tjjlj71t/image/upload/f_auto,q_auto/samples/ecommerce/leather-bag-gray.jpg'
-        })
+      await categoriesApi.add({
+        categoryName: updated[key].name,
+        uniqueKey: key,
+        categoryImage: updated[key].icon || 'https://res.cloudinary.com/tjjlj71t/image/upload/f_auto,q_auto/samples/ecommerce/leather-bag-gray.jpg'
       });
-
-      if (response.ok) {
-        alert('Category added and synchronized with backend successfully!');
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        console.warn('Backend sync error:', errData);
-        alert(`Category saved locally, but backend sync returned: ${errData.message || response.statusText}`);
-      }
+      alert('Category added and synchronized with backend successfully!');
     } catch (err) {
       console.error('Error syncing category with backend:', err);
-      alert('Category saved locally, but backend sync failed due to network error.');
+      alert(`Category saved locally, but backend sync failed: ${err.message || 'Network error'}`);
     }
   };
 
@@ -569,29 +555,18 @@ export default function Admin() {
         setSelectedSubKey('');
       }
 
-      try {
-        const token = sessionStorage.getItem('adminToken');
-        const headers = {
-          'Content-Type': 'application/json'
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-          headers['x-auth-token'] = token;
-        }
-        const response = await fetch(`https://kreskobackend.onrender.com/api/categories/${key}`, {
-          method: 'DELETE',
-          headers
-        });
-        if (response.ok) {
+      // Backend expects MongoDB _id, not the uniqueKey
+      const catId = categories[key]?._id;
+      if (catId) {
+        try {
+          await categoriesApi.delete(catId);
           alert('Category deleted and synchronized with backend successfully!');
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          console.warn('Backend sync error:', errData);
-          alert(`Category deleted locally, but backend sync returned: ${errData.message || response.statusText}`);
+        } catch (err) {
+          console.error('Error syncing category deletion with backend:', err);
+          alert(`Category deleted locally, but backend sync failed: ${err.message || 'Network error'}`);
         }
-      } catch (err) {
-        console.error('Error syncing category deletion with backend:', err);
-        alert('Category deleted locally, but backend sync failed.');
+      } else {
+        alert('Category deleted locally (no backend ID found for sync).');
       }
     }
   };
@@ -613,34 +588,22 @@ export default function Admin() {
     saveProductCategories(updated);
     setCategories(updated);
 
-    try {
-      const token = sessionStorage.getItem('adminToken');
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-        headers['x-auth-token'] = token;
-      }
-      const response = await fetch(`https://kreskobackend.onrender.com/api/categories/${key}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          key,
-          name: newName.trim(),
-          icon: categories[key].icon || 'fa-sparkles'
-        })
-      });
-      if (response.ok) {
+    // Backend expects MongoDB _id, not the uniqueKey
+    const catId = categories[key]?._id;
+    if (catId) {
+      try {
+        await categoriesApi.update(catId, {
+          categoryName: newName.trim(),
+          uniqueKey: key,
+          categoryImage: categories[key].icon || 'fa-sparkles'
+        });
         alert('Category renamed and synchronized with backend successfully!');
-      } else {
-        const errData = await response.json().catch(() => ({}));
-        console.warn('Backend sync error:', errData);
-        alert(`Category renamed locally, but backend sync returned: ${errData.message || response.statusText}`);
+      } catch (err) {
+        console.error('Error syncing category update with backend:', err);
+        alert(`Category renamed locally, but backend sync failed: ${err.message || 'Network error'}`);
       }
-    } catch (err) {
-      console.error('Error syncing category update with backend:', err);
-      alert('Category renamed locally, but backend sync failed.');
+    } else {
+      alert('Category renamed locally (no backend ID found for sync).');
     }
   };
 
@@ -738,12 +701,12 @@ export default function Admin() {
 
   // Filter inquiries list
   const filteredEnquiries = enquiries.filter(enq => {
-    const searchString = enquirySearch.toLowerCase();
+    const searchString = (enquirySearch || '').toLowerCase();
     return (
-      enq.name.toLowerCase().includes(searchString) ||
-      enq.company.toLowerCase().includes(searchString) ||
-      enq.machineType.toLowerCase().includes(searchString) ||
-      enq.email.toLowerCase().includes(searchString)
+      (enq.name || '').toLowerCase().includes(searchString) ||
+      (enq.company || '').toLowerCase().includes(searchString) ||
+      (enq.machineType || '').toLowerCase().includes(searchString) ||
+      (enq.email || '').toLowerCase().includes(searchString)
     );
   });
 
