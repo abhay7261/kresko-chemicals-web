@@ -2461,6 +2461,7 @@ textarea.form-control {
   .product-horizontal-card .product-item-title {
     font-size: 1.15rem !important;
     -webkit-line-clamp: 2 !important;
+    line-clamp: 2 !important;
     word-break: break-word !important;
   }
 
@@ -2797,6 +2798,7 @@ textarea.form-control {
   max-width: 100%;
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
