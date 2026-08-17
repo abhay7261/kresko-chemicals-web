@@ -13,33 +13,60 @@ import axios from 'axios';
  * and return normalized data so callers do not need to worry about
  * axios response wrappers.
  *
- * Backend Audit Results (tested 2026-08-05):
- *   ✅ POST /api/auth/login          → { password } → { token }
- *   ✅ GET  /api/products            → [products]
- *   ✅ POST /api/products/upload     → JSON or FormData + JWT
- *   ❌ DELETE /api/products/:id      → 404 (route doesn't exist)
- *   ✅ GET  /api/categories          → { categories: [...] }
- *   ✅ POST /api/categories/add      → JSON + JWT
- *   ⚠ DELETE /api/categories/:id    → expects ObjectId, not key
- *   ⚠ PUT    /api/categories/:id    → expects ObjectId, not key
- *   ✅ GET  /api/subcategories       → [subcategories]
- *   ✅ POST /api/subcategories/add   → JSON + JWT
- *   ✅ GET  /api/blogs               → [blogs]
- *   ✅ POST /api/blogs/upload        → JSON or FormData + JWT
- *   ✅ DELETE /api/blogs/:id         → JWT
- *   ✅ GET  /api/news                → [news]
- *   ❌ POST /api/news                → 404 (no create route)
- *   ✅ DELETE /api/news/:id          → JWT
- *   ✅ POST /api/inquiry/send        → JSON (fullName, businessEmail, phone, productInterest, message)
- *   ✅ DELETE /api/inquiry/:id       → JWT
- *   ❌ GET  /api/inquiry             → 404 (no admin list route)
- *   ✅ POST /api/quote/send          → JSON (fullname lowercase!, businessEmail, phone, productInterest, message)
- *   ✅ DELETE /api/quote/:id         → JWT
- *   ❌ GET  /api/quote               → 404 (no admin list route)
- *   ❌ /api/distributor              → 404 (route doesn't exist - falls back to inquiry)
- *   ❌ /api/oem                      → 404 (route doesn't exist - falls back to inquiry)
- *   ❌ /api/career                   → 404 (route doesn't exist - falls back to inquiry)
- *   ❌ GET /api/auth/verify          → 404 (route doesn't exist)
+ * Backend API Reference (from official docs):
+ *   POST /api/auth/login                    → { password } → { token }
+ *   GET  /api/auth/security-question        → { question }
+ *   POST /api/auth/change-password          → { answer, newPassword }
+ *   POST /api/products/upload               → multipart + JWT
+ *   GET  /api/products                      → [products]
+ *   POST /api/categories/add                → JSON + JWT
+ *   GET  /api/categories                    → { categories: [...] }
+ *   PUT  /api/categories/:id                → JSON + JWT
+ *   DELETE /api/categories/:id              → JWT
+ *   POST /api/subcategories/add             → JSON + JWT
+ *   GET  /api/subcategories                 → [subcategories]
+ *   GET  /api/subcategories/category/:key   → [subcategories]
+ *   PUT  /api/subcategories/:id             → JSON + JWT
+ *   DELETE /api/subcategories/:id           → JWT
+ *   POST /api/blogs/create                  → multipart + JWT
+ *   GET  /api/blogs                         → [blogs]
+ *   GET  /api/blogs/:id                     → blog
+ *   DELETE /api/blogs/:id                   → JWT
+ *   POST /api/news/create                   → JSON + JWT
+ *   GET  /api/news                          → [news]
+ *   GET  /api/news/:slug                    → news
+ *   PUT  /api/news/:id                      → JSON + JWT
+ *   DELETE /api/news/:id                    → JWT
+ *   POST /api/inquiry/send                  → JSON (fullName, businessEmail, phone, companyName, productInterest, message)
+ *   GET  /api/inquiry/all                   → JWT
+ *   DELETE /api/inquiry/:id                 → JWT
+ *   POST /api/quote/send                    → JSON (fullname, businessEmail, phone, companyName, productInterest, specifications, message)
+ *   GET  /api/quote/all                     → JWT
+ *   DELETE /api/quote/:id                   → JWT
+ *   POST /api/distributor/apply             → JSON (contactPersonName, businessEmail, phone, distributionFirmName, territory, infrastructure)
+ *   GET  /api/distributor/all               → JWT
+ *   DELETE /api/distributor/:id             → JWT
+ *   POST /api/oem/request                   → JSON (fullname, businessEmail, phone, brandName, monthlyVolume, blendingSpecs)
+ *   GET  /api/oem/all                       → JWT
+ *   DELETE /api/oem/:id                     → JWT
+ *   POST /api/career/apply                  → multipart (fullname, email, phone, position, experience, coverLetter, resume)
+ *   GET  /api/career/all                    → JWT
+ *   DELETE /api/career/:id                  → JWT
+ *   GET    /api/catalogs                    → [catalogs] public
+ *   POST   /api/catalogs                    → multipart + JWT (title, description, documentType, pdf)
+ *   PUT    /api/catalogs/:id                → multipart + JWT
+ *   DELETE /api/catalogs/:id                → JWT
+ *   POST   /api/catalog/save                → legacy multipart + JWT
+ *   GET    /api/catalog                     → legacy public (returns list)
+ *   DELETE /api/catalog/delete/:id          → legacy JWT
+
+ *   POST /api/faqs/create                   → JWT
+ *   GET  /api/faqs                          → public
+ *   GET  /api/faqs/admin                    → JWT
+ *   PUT  /api/faqs/:id                      → JWT
+ *   DELETE /api/faqs/:id                    → JWT
+ *   PUT  /api/admin/settings/change-password    → JWT
+ *   PUT  /api/admin/settings/recovery-settings  → JWT
  */
 
 export const API_BASE_URL =
@@ -118,6 +145,10 @@ export const resolveImageUrl = (image) => {
     typeof image === 'string' &&
     (image.startsWith('http') || image.startsWith('data:') || image.startsWith('/'))
   ) {
+    // Relative upload paths like /uploads/... must hit the backend host
+    if (typeof image === 'string' && image.startsWith('/uploads/')) {
+      return `${API_BASE_URL}${image}`;
+    }
     return image;
   }
   if (typeof image === 'string') {
@@ -125,6 +156,34 @@ export const resolveImageUrl = (image) => {
   }
   return '/images/product_placeholder.jpg';
 };
+
+/**
+ * Resolve a catalog PDF path/URL to a full downloadable URL.
+ * Accepts absolute http(s) links, /uploads/... paths, or bare filenames.
+ */
+export const resolveFileUrl = (file) => {
+  if (!file || typeof file !== 'string') return '';
+  if (file.startsWith('http://') || file.startsWith('https://') || file.startsWith('data:')) {
+    return file;
+  }
+  if (file.startsWith('/uploads/')) {
+    return `${API_BASE_URL}${file}`;
+  }
+  if (file.startsWith('/')) {
+    return `${API_BASE_URL}${file}`;
+  }
+  return `${API_BASE_URL}/uploads/${file}`;
+};
+
+/** Format byte size for display (e.g. 1.2 MB). */
+export const formatFileSize = (bytes) => {
+  const n = Number(bytes) || 0;
+  if (n <= 0) return 'PDF Document';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 
 // ─────────────────────────────────────────────────────────────
 //  Helper – convert a data-URL string into a File object
@@ -150,20 +209,25 @@ export const dataUrlToFile = (dataUrl, filename = 'upload.png') => {
 //  AUTH API  –  /api/auth
 // ─────────────────────────────────────────────────────────────
 export const authApi = {
-  /**
-   * Admin login.
-   * Sends { password } and receives { message, token }.
-   */
+  /** Admin login. Sends { password } and receives { message, token }. */
   login: async (password) => {
     const { data } = await api.post('/api/auth/login', { password });
     return data;
   },
 
-  /**
-   * Verify the current JWT is still valid.
-   * NOTE: Backend does not have this route (404).
-   * Returns true if a token exists in sessionStorage.
-   */
+  /** Get the security question (public). */
+  getSecurityQuestion: async () => {
+    const { data } = await api.get('/api/auth/security-question');
+    return data;
+  },
+
+  /** Change password using security answer (public). */
+  changePassword: async (answer, newPassword) => {
+    const { data } = await api.post('/api/auth/change-password', { answer, newPassword });
+    return data;
+  },
+
+  /** Verify the current JWT is still valid (local check). */
   verify: async () => {
     const token = sessionStorage.getItem('adminToken');
     if (!token) return { valid: false };
@@ -181,15 +245,11 @@ export const productsApi = {
     return data;
   },
 
-  /** Fetch a single product by id. */
-  getById: async (id) => {
-    const { data } = await api.get(`/api/products/${id}`);
-    return data;
-  },
-
   /**
    * Create / upload a product.
    * Accepts either a FormData object (with image file) or a plain JSON object.
+   * Fields: name, category, variant, price, unit, moq, moqUnit, dilution,
+   *         dilutedPrice, description, badge, specifications, image
    * JWT is automatically attached by the request interceptor.
    */
   upload: async (formDataOrPayload) => {
@@ -201,25 +261,6 @@ export const productsApi = {
         ? { headers: { 'Content-Type': 'multipart/form-data' } }
         : undefined
     );
-    return data;
-  },
-
-  /**
-   * Update a product.
-   * NOTE: Backend may not have this route yet.
-   */
-  update: async (id, payload) => {
-    const { data } = await api.put(`/api/products/${id}`, payload);
-    return data;
-  },
-
-  /**
-   * Delete a product.
-   * NOTE: Backend route /api/products/:id DELETE returns 404.
-   * This will throw an error which callers should catch.
-   */
-  delete: async (id) => {
-    const { data } = await api.delete(`/api/products/${id}`);
     return data;
   },
 };
@@ -249,18 +290,15 @@ export const categoriesApi = {
   },
 
   /**
-   * Update a category by its MongoDB _id (NOT by uniqueKey).
-   * The backend expects an ObjectId in the URL parameter.
+   * Update a category by its MongoDB _id.
+   * Fields: categoryName, uniqueKey, categoryImage
    */
   update: async (id, payload) => {
     const { data } = await api.put(`/api/categories/${id}`, payload);
     return data;
   },
 
-  /**
-   * Delete a category by its MongoDB _id (NOT by uniqueKey).
-   * The backend expects an ObjectId in the URL parameter.
-   */
+  /** Delete a category by its MongoDB _id. */
   delete: async (id) => {
     const { data } = await api.delete(`/api/categories/${id}`);
     return data;
@@ -271,12 +309,15 @@ export const categoriesApi = {
 //  SUBCATEGORIES API  –  /api/subcategories
 // ─────────────────────────────────────────────────────────────
 export const subcategoriesApi = {
-  /** Fetch all subcategories (optionally filtered by category). */
-  getAll: async (categoryKey) => {
-    const url = categoryKey
-      ? `/api/subcategories?category=${categoryKey}`
-      : '/api/subcategories';
-    const { data } = await api.get(url);
+  /** Fetch all subcategories. */
+  getAll: async () => {
+    const { data } = await api.get('/api/subcategories');
+    return data;
+  },
+
+  /** Fetch subcategories filtered by a category's uniqueKey. */
+  getByCategory: async (categoryKey) => {
+    const { data } = await api.get(`/api/subcategories/category/${categoryKey}`);
     return data;
   },
 
@@ -319,15 +360,15 @@ export const blogsApi = {
   },
 
   /**
-   * Upload a blog post with an optional image.
+   * Create a blog post with an optional image.
    * Accepts either FormData (with image file) or plain JSON.
    * Fields: title, description, image (file)
    * JWT is automatically attached by the request interceptor.
    */
-  upload: async (formDataOrPayload) => {
+  create: async (formDataOrPayload) => {
     const isFormData = formDataOrPayload instanceof FormData;
     const { data } = await api.post(
-      '/api/blogs/upload',
+      '/api/blogs/create',
       formDataOrPayload,
       isFormData
         ? { headers: { 'Content-Type': 'multipart/form-data' } }
@@ -353,19 +394,25 @@ export const newsApi = {
     return data;
   },
 
-  /** Fetch a single news item by id. */
-  getById: async (id) => {
-    const { data } = await api.get(`/api/news/${id}`);
+  /** Fetch a single news item by slug. */
+  getBySlug: async (slug) => {
+    const { data } = await api.get(`/api/news/${slug}`);
     return data;
   },
 
   /**
    * Create a news item.
-   * NOTE: Backend does not have POST /api/news (returns 404).
-   * This will throw an error which callers should catch.
+   * Fields: title, slug, category, description, content, image
+   * JWT is automatically attached by the request interceptor.
    */
   create: async (payload) => {
-    const { data } = await api.post('/api/news', payload);
+    const { data } = await api.post('/api/news/create', payload);
+    return data;
+  },
+
+  /** Update a news item by id. JWT required. */
+  update: async (id, payload) => {
+    const { data } = await api.put(`/api/news/${id}`, payload);
     return data;
   },
 
@@ -382,13 +429,14 @@ export const newsApi = {
 export const inquiryApi = {
   /**
    * Submit a general inquiry (public).
-   * Required fields: fullName (capital N), businessEmail, phone, productInterest, message
+   * Required fields: fullName, businessEmail, phone, companyName, productInterest, message
    */
   send: async (payload) => {
     const normalized = {
       fullName: payload.fullName || payload.fullname || payload.name || '',
       businessEmail: payload.businessEmail || payload.email || '',
       phone: payload.phone || '',
+      companyName: payload.companyName || payload.company || '',
       productInterest: payload.productInterest || payload.machineType || '',
       message: payload.message || '',
     };
@@ -396,10 +444,13 @@ export const inquiryApi = {
     return data;
   },
 
-  /**
-   * Delete an inquiry by id (admin).
-   * JWT is automatically attached by the request interceptor.
-   */
+  /** Fetch all inquiries (admin). JWT required. */
+  getAll: async () => {
+    const { data } = await api.get('/api/inquiry/all');
+    return data;
+  },
+
+  /** Delete an inquiry by id (admin). JWT required. */
   delete: async (id) => {
     const { data } = await api.delete(`/api/inquiry/${id}`);
     return data;
@@ -412,24 +463,29 @@ export const inquiryApi = {
 export const quoteApi = {
   /**
    * Submit a quote request (public).
-   * Required fields: fullname (lowercase n!), businessEmail, phone, productInterest, message
+   * Required fields: fullname (lowercase n!), businessEmail, phone, companyName, productInterest, specifications, message
    */
   send: async (payload) => {
     const normalized = {
       fullname: payload.fullname || payload.fullName || payload.name || '',
       businessEmail: payload.businessEmail || payload.email || '',
       phone: payload.phone || '',
+      companyName: payload.companyName || payload.company || '',
       productInterest: payload.productInterest || payload.product || '',
+      specifications: payload.specifications || '',
       message: payload.message || '',
     };
     const { data } = await api.post('/api/quote/send', normalized);
     return data;
   },
 
-  /**
-   * Delete a quote request by id (admin).
-   * JWT is automatically attached by the request interceptor.
-   */
+  /** Fetch all quote requests (admin). JWT required. */
+  getAll: async () => {
+    const { data } = await api.get('/api/quote/all');
+    return data;
+  },
+
+  /** Delete a quote request by id (admin). JWT required. */
   delete: async (id) => {
     const { data } = await api.delete(`/api/quote/${id}`);
     return data;
@@ -437,67 +493,211 @@ export const quoteApi = {
 };
 
 // ─────────────────────────────────────────────────────────────
-//  DISTRIBUTOR API  –  falls back to /api/inquiry/send
-//  Backend does not have /api/distributor routes (404).
+//  DISTRIBUTOR API  –  /api/distributor
 // ─────────────────────────────────────────────────────────────
 export const distributorApi = {
   /**
-   * Submit a distributor application.
-   * Falls back to the inquiry endpoint since /api/distributor doesn't exist.
+   * Submit a distributor application (public).
+   * Fields: contactPersonName, businessEmail, phone, distributionFirmName, territory, infrastructure
    */
-  send: async (payload) => {
+  apply: async (payload) => {
     const normalized = {
-      fullName: payload.fullName || payload.fullname || payload.name || '',
+      contactPersonName: payload.contactPersonName || payload.fullName || payload.name || '',
       businessEmail: payload.businessEmail || payload.email || '',
       phone: payload.phone || '',
-      productInterest: `Distributor Request (Territory: ${payload.territory || 'N/A'})`,
-      message: payload.message || '',
+      distributionFirmName: payload.distributionFirmName || payload.company || '',
+      territory: payload.territory || '',
+      infrastructure: payload.infrastructure || payload.message || '',
     };
-    const { data } = await api.post('/api/inquiry/send', normalized);
+    const { data } = await api.post('/api/distributor/apply', normalized);
+    return data;
+  },
+
+  /** Fetch all distributor applications (admin). JWT required. */
+  getAll: async () => {
+    const { data } = await api.get('/api/distributor/all');
+    return data;
+  },
+
+  /** Delete a distributor application by id (admin). JWT required. */
+  delete: async (id) => {
+    const { data } = await api.delete(`/api/distributor/${id}`);
     return data;
   },
 };
 
 // ─────────────────────────────────────────────────────────────
-//  OEM API  –  falls back to /api/inquiry/send
-//  Backend does not have /api/oem routes (404).
+//  OEM API  –  /api/oem
 // ─────────────────────────────────────────────────────────────
 export const oemApi = {
   /**
-   * Submit an OEM / private-label request.
-   * Falls back to the inquiry endpoint since /api/oem doesn't exist.
+   * Submit an OEM / private-label request (public).
+   * Fields: fullname, businessEmail, phone, brandName, monthlyVolume, blendingSpecs
    */
-  send: async (payload) => {
+  request: async (payload) => {
     const normalized = {
-      fullName: payload.fullName || payload.fullname || payload.name || '',
+      fullname: payload.fullname || payload.fullName || payload.name || '',
       businessEmail: payload.businessEmail || payload.email || '',
       phone: payload.phone || '',
-      productInterest: `OEM Private Label (Volume: ${payload.volume || 'N/A'})`,
-      message: payload.formulation || payload.message || '',
+      brandName: payload.brandName || payload.company || '',
+      monthlyVolume: payload.monthlyVolume || payload.volume || '',
+      blendingSpecs: payload.blendingSpecs || payload.formulation || payload.message || '',
     };
-    const { data } = await api.post('/api/inquiry/send', normalized);
+    const { data } = await api.post('/api/oem/request', normalized);
+    return data;
+  },
+
+  /** Fetch all OEM requests (admin). JWT required. */
+  getAll: async () => {
+    const { data } = await api.get('/api/oem/all');
+    return data;
+  },
+
+  /** Delete an OEM request by id (admin). JWT required. */
+  delete: async (id) => {
+    const { data } = await api.delete(`/api/oem/${id}`);
     return data;
   },
 };
 
 // ─────────────────────────────────────────────────────────────
-//  CAREER API  –  falls back to /api/inquiry/send
-//  Backend does not have /api/career routes (404).
+//  CAREER API  –  /api/career
 // ─────────────────────────────────────────────────────────────
 export const careerApi = {
   /**
-   * Submit a career application.
-   * Falls back to the inquiry endpoint since /api/career doesn't exist.
+   * Submit a career application (public).
+   * Accepts FormData (with resume file) or plain JSON.
+   * Fields: fullname, email, phone, position, experience, coverLetter, resume (file)
    */
-  send: async (payload) => {
-    const normalized = {
-      fullName: payload.fullName || payload.fullname || payload.name || '',
-      businessEmail: payload.businessEmail || payload.email || '',
-      phone: payload.phone || '',
-      productInterest: `Career Application: ${payload.position || 'General'}`,
-      message: payload.message || '',
-    };
-    const { data } = await api.post('/api/inquiry/send', normalized);
+  apply: async (formDataOrPayload) => {
+    const isFormData = formDataOrPayload instanceof FormData;
+    const { data } = await api.post(
+      '/api/career/apply',
+      formDataOrPayload,
+      isFormData
+        ? { headers: { 'Content-Type': 'multipart/form-data' } }
+        : undefined
+    );
+    return data;
+  },
+
+  /** Fetch all career applications (admin). JWT required. */
+  getAll: async () => {
+    const { data } = await api.get('/api/career/all');
+    return data;
+  },
+
+  /** Delete a career application by id (admin). JWT required. */
+  delete: async (id) => {
+    const { data } = await api.delete(`/api/career/${id}`);
+    return data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+//  CATALOG API  –  /api/catalogs  (+ legacy /api/catalog)
+// ─────────────────────────────────────────────────────────────
+export const catalogApi = {
+  // Get all catalogs
+  getAll: async () => {
+    const { data } = await api.get("/api/catalog");
+
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.catalogs)) return data.catalogs;
+    if (data && data.catalog) return [data.catalog];
+    if (data && data._id) return [data];
+
+    return [];
+  },
+
+  // Get one catalog
+  getById: async (id) => {
+    const catalogs = await catalogApi.getAll();
+    return catalogs.find(c => c._id === id || c.id === id);
+  },
+
+  // Upload catalog
+  create: async (formData) => {
+    const { data } = await api.post("/api/catalog/save", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    return data;
+  },
+
+  // Update catalog
+  // Backend doesn't have PUT, so use the same save endpoint.
+  update: async (id, formData) => {
+    formData.append("_id", id);
+
+    const { data } = await api.post("/api/catalog/save", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    return data;
+  },
+
+  // Delete catalog
+  delete: async (id) => {
+    const { data } = await api.delete(`/api/catalog/delete/${id}`);
+    return data;
+  },
+};
+  
+
+
+// ─────────────────────────────────────────────────────────────
+//  FAQS API  –  /api/faqs
+// ─────────────────────────────────────────────────────────────
+export const faqsApi = {
+  /** Create a FAQ (admin). JWT required. */
+  create: async (payload) => {
+    const { data } = await api.post('/api/faqs/create', payload);
+    return data;
+  },
+
+  /** Get public FAQs. */
+  getAll: async () => {
+    const { data } = await api.get('/api/faqs');
+    return data;
+  },
+
+  /** Get admin FAQ list (admin). JWT required. */
+  getAdmin: async () => {
+    const { data } = await api.get('/api/faqs/admin');
+    return data;
+  },
+
+  /** Update a FAQ by id (admin). JWT required. */
+  update: async (id, payload) => {
+    const { data } = await api.put(`/api/faqs/${id}`, payload);
+    return data;
+  },
+
+  /** Delete a FAQ by id (admin). JWT required. */
+  delete: async (id) => {
+    const { data } = await api.delete(`/api/faqs/${id}`);
+    return data;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+//  ADMIN SETTINGS API  –  /api/admin/settings
+// ─────────────────────────────────────────────────────────────
+export const adminSettingsApi = {
+  /** Change admin password (admin). JWT required. */
+  changePassword: async (payload) => {
+    const { data } = await api.put('/api/admin/settings/change-password', payload);
+    return data;
+  },
+
+  /** Update recovery question settings (admin). JWT required. */
+  updateRecoverySettings: async (payload) => {
+    const { data } = await api.put('/api/admin/settings/recovery-settings', payload);
     return data;
   },
 };

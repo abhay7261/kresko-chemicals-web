@@ -5,6 +5,13 @@ export default function AdminLiveOverlay() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(() => {
+    try {
+      return localStorage.getItem('kresko_admin_overlay_minimized') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     const checkLogin = () => {
@@ -15,6 +22,18 @@ export default function AdminLiveOverlay() {
     window.addEventListener('adminLoginStatusChange', checkLogin);
     return () => window.removeEventListener('adminLoginStatusChange', checkLogin);
   }, []);
+
+  const toggleMinimize = () => {
+    setIsMinimized(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('kresko_admin_overlay_minimized', next ? '1' : '0');
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
 
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to log out of Admin Live Edit Mode?')) {
@@ -34,6 +53,42 @@ export default function AdminLiveOverlay() {
   };
 
   if (!isAdmin) return null;
+
+  // Minimized: show a small floating button that re-expands the panel.
+  if (isMinimized) {
+    return (
+      <button
+        onClick={toggleMinimize}
+        title="Expand Admin Live Edit Mode"
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          zIndex: 99999,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.6rem 1rem',
+          backgroundColor: 'rgba(15, 23, 42, 0.9)',
+          backdropFilter: 'blur(12px)',
+          border: '1px solid rgba(245, 158, 11, 0.6)',
+          borderRadius: '30px',
+          color: '#ffffff',
+          fontFamily: 'sans-serif',
+          fontSize: '0.8rem',
+          fontWeight: 700,
+          cursor: 'pointer',
+          boxShadow: '0 8px 20px rgba(0, 0, 0, 0.35), 0 0 12px rgba(245, 158, 11, 0.2)',
+          transition: 'all 0.3s ease'
+        }}
+      >
+        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e' }}></span>
+        <i className="fa-solid fa-screwdriver-wrench" style={{ color: '#f59e0b' }}></i>
+        Admin Mode
+        <i className="fa-solid fa-chevron-up" style={{ fontSize: '0.7rem', opacity: 0.7 }}></i>
+      </button>
+    );
+  }
 
   // Render overlay toolbar only if admin is logged in
   return (
@@ -55,8 +110,28 @@ export default function AdminLiveOverlay() {
       transition: 'all 0.3s ease'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '0.5rem' }}>
-        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e', animate: 'pulse 1.5s infinite' }}></span>
-        <strong style={{ color: '#f59e0b', fontSize: '0.85rem' }}>🛠️ Admin Live Edit Mode</strong>
+        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22c55e' }}></span>
+        <strong style={{ color: '#f59e0b', fontSize: '0.85rem', flex: 1 }}>🛠️ Admin Live Edit Mode</strong>
+        <button
+          onClick={toggleMinimize}
+          title="Minimize"
+          style={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '4px',
+            color: '#ffffff',
+            cursor: 'pointer',
+            width: '22px',
+            height: '22px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '0.7rem',
+            lineHeight: 1
+          }}
+        >
+          <i className="fa-solid fa-minus"></i>
+        </button>
       </div>
       
       <p style={{ margin: '0 0 0.75rem 0', color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', lineHeight: '1.4' }}>

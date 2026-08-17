@@ -16,13 +16,20 @@ import {
   getReviews,
   deleteReview,
   getProductCategories,
-  saveProductCategories
+  saveProductCategories,
+  getHeroSlides,
+  saveHeroSlides,
+  resetHeroSlides,
+  getStoredCatalogs,
+  saveStoredCatalog,
+  removeStoredCatalog
 } from '../utils/storage';
 import {
   authApi,
   productsApi,
   categoriesApi,
   blogsApi,
+  catalogApi,
   dataUrlToFile,
 } from '../utils/api';
 import ProductImage from '../components/ProductImage';
@@ -93,8 +100,10 @@ export default function Admin() {
     setSecurityData(getAdminSecurity());
     setReviews(getReviews());
     setCategories(getProductCategories());
+    setCatalogTitle(localStorage.getItem('kresko_catalog_title') || '');
     setCatalogPdf(localStorage.getItem('kresko_catalog_pdf') || '');
     setCatalogUrl(localStorage.getItem('kresko_catalog_url') || '');
+    setSavedCatalogs(getStoredCatalogs());
 
     const reloadCats = () => {
       setCategories(getProductCategories());
@@ -105,27 +114,18 @@ export default function Admin() {
       setIsLocked(false);
     }
 
-    const editPayload = sessionStorage.getItem('editProductPayload');
+        const editPayload = sessionStorage.getItem('editProductPayload');
     if (editPayload) {
       try {
         const payload = JSON.parse(editPayload);
-        setActiveTab('manage-categories');
-        setSelectedCatKey(payload.category);
-        setSelectedSubKey(payload.subcategory);
-        
-        // Find product to pre-fill form
+        setActiveTab('manage-content');
+
+        // Find product to pre-fill the inline editor on the Manage Content tab.
         const allProducts = getProducts();
         const p = allProducts.find(prod => prod.id === payload.id);
         if (p) {
-          setManageProdId(p.id);
-          setManageProdTitle(p.title);
-          setManageProdPrice(p.price);
-          setManageProdTag(p.tag || '');
-          setManageProdDilution(p.dilution);
-          setManageProdMinPack(p.minPack || '');
-          setManageProdRateAfter(p.rateAfter || '');
-          setManageProdDesc(p.desc || '');
-          setManageProdImages(p.images || (p.image ? [p.image] : []));
+          const images = p.images && p.images.length ? [...p.images] : (p.image ? [p.image] : []);
+          setEditValues({ ...p, images });
         }
       } catch (e) {
         console.error(e);
@@ -181,6 +181,7 @@ export default function Admin() {
   const [blogDesc, setBlogDesc] = useState('');
   const [blogContent, setBlogContent] = useState('');
   const [blogImage, setBlogImage] = useState(null); // File object for backend upload
+  const [blogImagePreview, setBlogImagePreview] = useState(''); // data-URL preview shown on the card & article banner
   const [blogSuccess, setBlogSuccess] = useState('');
 
   // Form Field States - Password Change
@@ -196,9 +197,21 @@ export default function Admin() {
   const [secChangeSuccess, setSecChangeSuccess] = useState('');
 
   // Catalog manager states
+    const [catalogTitle, setCatalogTitle] = useState('');
   const [catalogPdf, setCatalogPdf] = useState('');
   const [catalogUrl, setCatalogUrl] = useState('');
   const [catalogSuccess, setCatalogSuccess] = useState('');
+  const [savedCatalogs, setSavedCatalogs] = useState([]);
+
+  // Inline edit a product directly from the Manage Content table (or via the
+  // Products-page deep-link). Decoupled from the Category → Subcategory tree,
+  // so ANY product can be edited even when its category/subcategory don't exist
+  // in the current category hierarchy.
+  const [editValues, setEditValues] = useState(null);
+
+  // Homepage hero editor states
+  const [heroSlides, setHeroSlides] = useState(() => getHeroSlides());
+  const [heroSuccess, setHeroSuccess] = useState('');
 
   // Enquiries search & details
   const [enquirySearch, setEnquirySearch] = useState('');
@@ -343,6 +356,47 @@ export default function Admin() {
     }
   };
 
+    // Edit a product from the Manage Content table (or via the Products-page
+  // deep-link). Opens a self-contained inline edit form on the Manage Content
+  // tab — decoupled from the Category → Subcategory tree, so it works for ANY
+  // product, even when its category/subcategory don't exist in the category tree.
+  const handleEditProduct = (p) => {
+    const images = p.images && p.images.length ? [...p.images] : (p.image ? [p.image] : []);
+    setEditValues({ ...p, images });
+    setActiveTab('manage-content');
+  };
+
+  const handleEditProductSave = (e) => {
+    e.preventDefault();
+    if (!editValues) return;
+    if (!editValues.title?.trim() || !editValues.price?.trim()) {
+      alert('Please fill out the Product Name and Price.');
+      return;
+    }
+    const imagesArr = (editValues.images || []).filter(img => img && img.trim() !== '');
+    const image = imagesArr[0] || '/images/product_placeholder.jpg';
+    // Preserve id / category / subcategory (and any backend _id) so the product
+    // stays in place — only the editable fields are updated.
+    const updatedProduct = {
+      ...editValues,
+      title: editValues.title.trim(),
+      price: editValues.price.trim(),
+      tag: (editValues.tag || '').trim(),
+      dilution: (editValues.dilution || '').trim(),
+      minPack: (editValues.minPack || '').trim(),
+      rateAfter: (editValues.rateAfter || '').trim(),
+      desc: (editValues.desc || '').trim(),
+      images: imagesArr,
+      image,
+    };
+    saveProduct(updatedProduct);
+    setProducts(getProducts()); // Reload products list
+    setEditValues(null);
+    alert(`Product "${editValues.title}" updated successfully!`);
+  };
+
+  const handleEditProductCancel = () => setEditValues(null);
+
   // Delete Enquiry lead trigger
   const handleDeleteEnquiry = async (id, name) => {
     if (window.confirm(`Are you sure you want to delete the inquiry lead from "${name}"?`)) {
@@ -447,7 +501,7 @@ export default function Admin() {
       date: formattedDate,
       title: blogTitle.trim(),
       desc: blogDesc.trim(),
-      image: '/images/Fotolia_116886232_Subscription_Monthly_M.jpg', // Default post cover
+      image: blogImagePreview || '/images/Fotolia_116886232_Subscription_Monthly_M.jpg', // Uploaded cover or default
       content: paragraphs
     };
 
@@ -479,6 +533,7 @@ export default function Admin() {
     setBlogDesc('');
     setBlogContent('');
     setBlogImage(null);
+    setBlogImagePreview('');
 
     setTimeout(() => {
       setBlogSuccess('');
@@ -486,25 +541,199 @@ export default function Admin() {
     }, 2000);
   };
 
-  const handleCatalogSubmit = (e) => {
+  const handleCatalogSubmit = async (e) => {
     e.preventDefault();
     setCatalogSuccess('');
-    localStorage.setItem('kresko_catalog_pdf', catalogPdf);
-    localStorage.setItem('kresko_catalog_url', catalogUrl.trim());
-    setCatalogSuccess('Product Catalog config saved successfully!');
-    setTimeout(() => {
-      setCatalogSuccess('');
-    }, 3000);
-  };
 
-  const handleClearCatalog = () => {
-    if (window.confirm('Are you sure you want to clear/delete the uploaded catalog PDF and URL?')) {
+    try {
+      const title = catalogTitle.trim();
+      if (!title) {
+        setCatalogSuccess('Please enter a Catalog Title.');
+        return;
+      }
+
+      const hasPdf = catalogPdf && catalogPdf.startsWith('data:');
+      const hasUrl = !!catalogUrl.trim();
+      if (!hasPdf && !hasUrl) {
+        setCatalogSuccess('Please upload a PDF file OR provide a custom PDF link/path.');
+        return;
+      }
+
+      // 1) Build the new catalog entry. Each upload is APPENDED to the list
+      //    (multi-catalog), never replacing previously uploaded catalogs.
+      const approxBytes = hasPdf ? Math.round((catalogPdf.length * 3) / 4) : 0;
+      if (hasPdf && approxBytes > 4.5 * 1024 * 1024) {
+        setCatalogSuccess('PDF is too large to embed locally (max ~4.5 MB). Please use a custom PDF link/path, or host the large file on the server.');
+        return;
+      }
+      const catalogEntry = {
+        id: `catalog-${Date.now()}`,
+        title,
+        file: hasPdf ? catalogPdf : '',
+        pdfLink: hasUrl ? catalogUrl.trim() : '',
+        fileSize: approxBytes,
+        createdAt: new Date().toISOString()
+      };
+
+      // Store locally (array → multiple catalogs).
+      const updated = saveStoredCatalog(catalogEntry);
+      setSavedCatalogs(updated);
+
+      // Mirror the newest catalog into the legacy single-slot keys for
+      // backward compatibility with older cached pages.
+      if (hasPdf) {
+        localStorage.setItem('kresko_catalog_title', title);
+        localStorage.setItem('kresko_catalog_pdf', catalogPdf);
+        localStorage.setItem('kresko_catalog_url', '');
+      } else {
+        localStorage.setItem('kresko_catalog_title', title);
+        localStorage.setItem('kresko_catalog_url', catalogUrl.trim());
+        localStorage.setItem('kresko_catalog_pdf', '');
+      }
+
+      // 2) Sync to backend (best-effort). The local config still works even
+      //    if this call fails (e.g. server cold start / route missing).
+      let backendOk = false;
+      try {
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('description', 'Product catalog');
+        formData.append('documentType', 'Catalogue');
+
+        if (hasPdf) {
+          const pdfFile = dataUrlToFile(catalogPdf, 'catalog.pdf');
+          if (pdfFile) formData.append('pdf', pdfFile);
+        } else {
+          formData.append('pdfLink', catalogUrl.trim());
+        }
+
+        await catalogApi.create(formData);
+        backendOk = true;
+      } catch (err) {
+        console.warn('Backend catalog sync failed (local config still saved):', err.message || err);
+      }
+
+      // Reset the form so a second catalog can be added cleanly.
+      setCatalogTitle('');
       setCatalogPdf('');
       setCatalogUrl('');
+
+      setCatalogSuccess(
+        backendOk
+          ? `Catalog "${title}" added! ${updated.length} catalog(s) saved. It is now live on the Resources page.`
+          : `Catalog "${title}" added locally (backend sync failed). It will still show on the Resources page.`
+      );
+      setTimeout(() => setCatalogSuccess(''), 5000);
+    } catch (err) {
+      console.error('Catalog save error:', err);
+      setCatalogSuccess('Error saving catalog. Please try again.');
+    }
+  };
+
+  const handleClearCatalog = async () => {
+    if (window.confirm('Are you sure you want to clear/delete the uploaded catalog PDF and URL?')) {
+      setCatalogTitle('');
+      setCatalogPdf('');
+      setCatalogUrl('');
+      // Remove the locally-saved single-slot config too.
+      localStorage.removeItem('kresko_catalog_title');
       localStorage.removeItem('kresko_catalog_pdf');
       localStorage.removeItem('kresko_catalog_url');
-      alert('Catalog cleared.');
+      alert('Current form cleared. Any catalogs in the saved list below are unchanged.');
     }
+  };
+
+  const handleDeleteCatalog = (id) => {
+    if (window.confirm('Are you sure you want to delete this catalog from the Resources page?')) {
+      const updated = removeStoredCatalog(id);
+      setSavedCatalogs(updated);
+      setCatalogSuccess('Catalog removed from the Resources page.');
+      setTimeout(() => setCatalogSuccess(''), 4000);
+    }
+  };
+
+  // ── Homepage Hero editor handlers ──────────────────────────
+  const handleHeroFieldChange = (idx, field, value) => {
+    setHeroSlides(prev => prev.map((s, i) => (i === idx ? { ...s, [field]: value } : s)));
+  };
+
+  const handleHeroImageSelect = (idx, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG/JPG/JPEG/WebP).');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Image too large (max 2 MB). Please use a smaller image or host it and use a URL.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setHeroSlides(prev => prev.map((s, i) => (i === idx ? { ...s, image: reader.result } : s)));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveHero = (e) => {
+    e.preventDefault();
+    const clean = heroSlides.map(s => ({
+      image: s.image || '',
+      overlay: s.overlay !== false,
+      tag: (s.tag || '').trim(),
+      title: (s.title || '').trim(),
+      desc: (s.desc || '').trim()
+    }));
+    saveHeroSlides(clean);
+
+    // Sync inline EditableText values so admin + inline edits stay in sync.
+    const savedTexts = JSON.parse(localStorage.getItem('kresko_editable_texts') || '{}');
+    clean.forEach((s, idx) => {
+      savedTexts[`home_slide_tag_${idx}`] = s.tag;
+      savedTexts[`home_slide_title_${idx}`] = s.title;
+      savedTexts[`home_slide_desc_${idx}`] = s.desc;
+    });
+    localStorage.setItem('kresko_editable_texts', JSON.stringify(savedTexts));
+
+    setHeroSuccess('Homepage hero saved successfully! It will show on the homepage immediately.');
+    setTimeout(() => setHeroSuccess(''), 3500);
+  };
+
+  const handleResetHero = () => {
+    if (window.confirm('Reset all homepage hero slides back to their original defaults?')) {
+      resetHeroSlides();
+      // Clear every inline hero text edit (any index), not just the first 3.
+      const savedTexts = JSON.parse(localStorage.getItem('kresko_editable_texts') || '{}');
+      Object.keys(savedTexts).forEach(k => {
+        if (k.startsWith('home_slide_')) delete savedTexts[k];
+      });
+      localStorage.setItem('kresko_editable_texts', JSON.stringify(savedTexts));
+      setHeroSlides(getHeroSlides());
+      setHeroSuccess('Hero content reset to defaults.');
+      setTimeout(() => setHeroSuccess(''), 3500);
+    }
+  };
+
+  const handleAddHeroSlide = () => {
+    setHeroSlides(prev => [
+      ...prev,
+      {
+        image: '/images/photo-1528218609959-006f98e6b79e.jpeg',
+        tag: 'New Slide',
+        title: 'New Slide Title',
+        desc: 'Write a description for this slide...',
+        overlay: true
+      }
+    ]);
+  };
+
+  const handleRemoveHeroSlide = (idx) => {
+    setHeroSlides(prev => {
+      if (prev.length <= 1) {
+        alert('At least one hero slide is required.');
+        return prev;
+      }
+      return prev.filter((_, i) => i !== idx);
+    });
   };
 
   const handleAddCategory = async (e) => {
@@ -530,6 +759,7 @@ export default function Admin() {
     setCategories(updated);
     setNewCatKey('');
     setNewCatName('');
+    setNewCatIcon('/images/product_placeholder.jpg');
 
     try {
       await categoriesApi.add({
@@ -744,6 +974,13 @@ export default function Admin() {
               <i className="fa-solid fa-list-check" style={{ marginRight: '0.5rem' }}></i> Manage Content
             </button>
             <button 
+              className={`btn btn-secondary ${activeTab === 'manage-hero' ? 'active' : ''}`}
+              onClick={() => setActiveTab('manage-hero')}
+              style={{ width: '100%', textAlign: 'left', padding: '0.8rem 1rem', fontSize: '0.8rem' }}
+            >
+              <i className="fa-solid fa-image" style={{ marginRight: '0.5rem' }}></i> Home Content
+            </button>
+            <button 
               className={`btn btn-secondary ${activeTab === 'manage-categories' ? 'active' : ''}`}
               onClick={() => setActiveTab('manage-categories')}
               style={{ width: '100%', textAlign: 'left', padding: '0.8rem 1rem', fontSize: '0.8rem' }}
@@ -896,6 +1133,124 @@ export default function Admin() {
             </div>
           )}
 
+          {/* MANAG HERO TAB (Edit homepage hero/banner text & images) */}
+          {activeTab === 'manage-hero' && (
+            <div>
+              <h2 style={{ color: 'var(--color-primary)', fontFamily: 'var(--font-serif)', fontSize: '1.75rem', marginBottom: '1rem' }}>Homepage Hero / Banner</h2>
+              <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', marginBottom: '2rem', lineHeight: '1.6' }}>
+                Edit the text and background image of each hero slide shown on the homepage. Use <strong>Add Slide</strong> to create more banners and the <strong>Remove</strong> button on each slide to delete one. Changes save to this browser and appear on the homepage immediately.
+              </p>
+
+              <form onSubmit={handleSaveHero} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {heroSlides.map((slide, idx) => (
+                  <div key={idx} style={{ padding: '1.5rem', border: '1px solid var(--color-border)', borderRadius: '6px', backgroundColor: 'var(--color-bg-white)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '2px solid var(--color-accent)', paddingBottom: '0.5rem', marginBottom: '1.25rem' }}>
+                      <h4 style={{ margin: 0, color: 'var(--color-primary)', fontSize: '1rem', fontWeight: 700 }}>
+                        <i className="fa-solid fa-sliders" style={{ color: 'var(--color-accent)', marginRight: '0.5rem' }}></i> Slide {idx + 1}
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveHeroSlide(idx)}
+                        disabled={heroSlides.length <= 1}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.7rem', color: '#dc2626', borderColor: heroSlides.length <= 1 ? 'var(--color-border)' : '#fca5a5', cursor: heroSlides.length <= 1 ? 'not-allowed' : 'pointer' }}
+                      >
+                        <i className="fa-solid fa-trash-can" style={{ marginRight: '0.3rem' }}></i> Remove
+                      </button>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: '1rem' }}>
+                      <label className="form-label">Slide Tag / Badge</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. B2B Chemical Concentrates"
+                        value={slide.tag || ''}
+                        onChange={(e) => handleHeroFieldChange(idx, 'tag', e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: '1rem' }}>
+                      <label className="form-label">Slide Title *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. High-Performance Cleaning Concentrates"
+                        value={slide.title || ''}
+                        onChange={(e) => handleHeroFieldChange(idx, 'title', e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: '1rem' }}>
+                      <label className="form-label">Slide Description</label>
+                      <textarea
+                        className="form-control"
+                        placeholder="Short description shown on the hero slide..."
+                        value={slide.desc || ''}
+                        onChange={(e) => handleHeroFieldChange(idx, 'desc', e.target.value)}
+                        style={{ minHeight: '90px' }}
+                      ></textarea>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Background Image</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          id={`hero-image-upload-${idx}`}
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleHeroImageSelect(idx, e.target.files[0])}
+                        />
+                        <label
+                          htmlFor={`hero-image-upload-${idx}`}
+                          className="btn btn-secondary"
+                          style={{ margin: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', textTransform: 'none', fontSize: '0.8rem' }}
+                        >
+                          <i className="fa-solid fa-image"></i> Upload Image
+                        </label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Or paste an image URL/path..."
+                          value={slide.image || ''}
+                          onChange={(e) => handleHeroFieldChange(idx, 'image', e.target.value)}
+                          style={{ maxWidth: '320px' }}
+                        />
+                        {slide.image && (
+                          <img
+                            src={slide.image}
+                            alt={`Slide ${idx + 1} preview`}
+                            style={{ width: '130px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--color-border)' }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-secondary" onClick={handleAddHeroSlide} style={{ fontWeight: 700 }}>
+                    <i className="fa-solid fa-plus" style={{ marginRight: '0.4rem' }}></i> Add Slide
+                  </button>
+                  <button type="submit" className="btn btn-primary" style={{ fontWeight: 700 }}>
+                    <i className="fa-solid fa-floppy-disk" style={{ marginRight: '0.4rem' }}></i> Save Hero Content
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={handleResetHero} style={{ color: '#dc2626', borderColor: '#fca5a5', fontWeight: 700 }}>
+                    <i className="fa-solid fa-rotate-left" style={{ marginRight: '0.4rem' }}></i> Reset to Defaults
+                  </button>
+                </div>
+
+                {heroSuccess && (
+                  <div className="form-message success" style={{ display: 'block', marginTop: '1rem' }}>
+                    {heroSuccess}
+                  </div>
+                )}
+              </form>
+            </div>
+          )}
+
           {/* MANAGE CONTENT TAB (Delete listings / blogs) */}
           {activeTab === 'manage-content' && (
             <div>
@@ -903,7 +1258,71 @@ export default function Admin() {
 
               {/* Product Items Table */}
               <div style={{ marginBottom: '4rem' }}>
-                <h4 style={{ color: 'var(--color-primary)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Active Chemical Concentrates ({products.length})</h4>
+                                <h4 style={{ color: 'var(--color-primary)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Active Chemical Concentrates ({products.length})</h4>
+
+                {editValues && (
+                  <div style={{ padding: '1.5rem', marginBottom: '1.5rem', border: '2px solid var(--color-accent)', borderRadius: '6px', backgroundColor: 'var(--color-bg-white)', boxShadow: 'var(--shadow-sm)' }}>
+                    <h5 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--color-primary)' }}>
+                      Editing: {editValues.title}
+                    </h5>
+                    <form onSubmit={handleEditProductSave}>
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">Product Name *</label>
+                          <input type="text" className="form-control" value={editValues.title || ''} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} required />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Price / Pack Cost *</label>
+                          <input type="text" className="form-control" placeholder="e.g. Rs. 180 / Kg" value={editValues.price || ''} onChange={(e) => setEditValues({ ...editValues, price: e.target.value })} required />
+                        </div>
+                      </div>
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">Category</label>
+                          <input type="text" className="form-control" value={editValues.category || ''} readOnly style={{ backgroundColor: '#f1f5f9', cursor: 'default' }} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Subcategory</label>
+                          <input type="text" className="form-control" placeholder="e.g. fabric-wash-6x" value={editValues.subcategory || ''} onChange={(e) => setEditValues({ ...editValues, subcategory: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">Card Badge / Tag</label>
+                          <input type="text" className="form-control" placeholder="e.g. Popular, Eco Friendly" value={editValues.tag || ''} onChange={(e) => setEditValues({ ...editValues, tag: e.target.value })} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Recommended Dilution *</label>
+                          <input type="text" className="form-control" placeholder="e.g. 1 + 5" value={editValues.dilution || ''} onChange={(e) => setEditValues({ ...editValues, dilution: e.target.value })} required />
+                        </div>
+                      </div>
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label className="form-label">Minimum Pack Size *</label>
+                          <input type="text" className="form-control" placeholder="e.g. 30 Kg" value={editValues.minPack || ''} onChange={(e) => setEditValues({ ...editValues, minPack: e.target.value })} required />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Rate After *</label>
+                          <input type="text" className="form-control" placeholder="e.g. Rs. 30.00 / Litre" value={editValues.rateAfter || ''} onChange={(e) => setEditValues({ ...editValues, rateAfter: e.target.value })} required />
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Detailed Description *</label>
+                        <textarea rows="4" className="form-control" placeholder="Describe the application protocols, surfactant percentage, raw materials compatibility..." value={editValues.desc || ''} onChange={(e) => setEditValues({ ...editValues, desc: e.target.value })} required />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Product Image URLs (one per line)</label>
+                        <textarea rows="3" className="form-control" placeholder="e.g. /images/products/floor_cleaner_purple.png" value={(editValues.images || []).join('\n')} onChange={(e) => setEditValues({ ...editValues, images: e.target.value.split('\n') })} />
+                        <small style={{ color: 'var(--color-text-muted)', display: 'block', marginTop: '0.4rem' }}>The first URL is used as the product thumbnail. Leave blank to keep the placeholder.</small>
+                      </div>
+                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                        <button type="submit" className="btn btn-primary" style={{ fontWeight: 700 }}>Save Product</button>
+                        <button type="button" className="btn btn-secondary" onClick={handleEditProductCancel}>Cancel</button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
                 <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: '4px' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                     <thead>
@@ -912,7 +1331,7 @@ export default function Admin() {
                         <th style={{ padding: '0.85rem' }}>Product Title</th>
                         <th style={{ padding: '0.85rem' }}>Category</th>
                         <th style={{ padding: '0.85rem' }}>Price</th>
-                        <th style={{ padding: '0.85rem', width: '100px' }}>Action</th>
+                        <th style={{ padding: '0.85rem', width: '180px' }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -927,13 +1346,22 @@ export default function Admin() {
                           <td style={{ padding: '0.85rem', textTransform: 'capitalize' }}>{p.category}</td>
                           <td style={{ padding: '0.85rem', color: 'var(--color-accent)', fontWeight: 600 }}>{p.price}</td>
                           <td style={{ padding: '0.85rem' }}>
-                            <button 
-                              className="btn btn-secondary" 
-                              style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem', color: '#dc2626', borderColor: '#fca5a5' }}
-                              onClick={() => handleDeleteProduct(p.id, p.title)}
-                            >
-                              <i className="fa-solid fa-trash-can"></i> Delete
-                            </button>
+                            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                              <button
+                                className="btn btn-primary"
+                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem' }}
+                                onClick={() => handleEditProduct(p)}
+                              >
+                                <i className="fa-solid fa-pen" style={{ marginRight: '0.3rem' }}></i> Edit
+                              </button>
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.7rem', color: '#dc2626', borderColor: '#fca5a5' }}
+                                onClick={() => handleDeleteProduct(p.id, p.title)}
+                              >
+                                <i className="fa-solid fa-trash-can"></i> Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1074,15 +1502,47 @@ export default function Admin() {
                         />
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
-                        <label className="form-label">Category Image URL *</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          placeholder="e.g. /images/laundry_care_bg.png" 
-                          value={newCatIcon} 
-                          onChange={(e) => setNewCatIcon(e.target.value)} 
-                          required
-                        />
+                        <label className="form-label">Category Image *</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            id="category-image-upload"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                              const file = e.target.files[0];
+                              if (!file) return;
+                              if (!file.type.startsWith('image/')) {
+                                alert('Please select an image file (PNG/JPG/JPEG/WebP).');
+                                return;
+                              }
+                              if (file.size > 1024 * 1024) {
+                                alert('Image too large. Please use an image under 1 MB, or host it and use a URL instead.');
+                                return;
+                              }
+                              const reader = new FileReader();
+                              reader.onloadend = () => setNewCatIcon(reader.result);
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                          <label
+                            htmlFor="category-image-upload"
+                            className="btn btn-secondary"
+                            style={{ margin: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', textTransform: 'none', fontSize: '0.8rem', padding: '0.4rem 0.9rem' }}
+                          >
+                            <i className="fa-solid fa-image"></i> Upload Image
+                          </label>
+                          {newCatIcon ? (
+                            <img
+                              src={newCatIcon}
+                              alt="Category preview"
+                              style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--color-border)', background: '#fff' }}
+                            />
+                          ) : null}
+                        </div>
+                        <small style={{ color: 'var(--color-text-muted)', display: 'block', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                          This image is shown on the product page next to the category. Upload a file (max 1 MB), and it replaces the URL field.
+                        </small>
                       </div>
                     </div>
                     <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: '0.8rem', padding: '0.5rem 0' }}>Add Category</button>
@@ -1734,6 +2194,67 @@ export default function Admin() {
                   ></textarea>
                 </div>
 
+                <div className="form-group">
+                  <label className="form-label">Blog/Article Cover Image</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="blog-image-upload"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        if (!file.type.startsWith('image/')) {
+                          alert('Please select an image file (PNG/JPG/JPEG/WebP).');
+                          return;
+                        }
+                        if (file.size > 2 * 1024 * 1024) {
+                          alert('Image too large. Please use an image under 2 MB, or host it and use a URL instead.');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setBlogImagePreview(reader.result);
+                          setBlogImage(file); // keep File for backend upload
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <label
+                      htmlFor="blog-image-upload"
+                      className="btn btn-secondary"
+                      style={{ margin: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', textTransform: 'none' }}
+                    >
+                      <i className="fa-solid fa-image"></i> Upload Cover Image
+                    </label>
+                    {blogImagePreview ? (
+                      <>
+                        <img
+                          src={blogImagePreview}
+                          alt="Blog cover preview"
+                          style={{ width: '120px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--color-border)' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => { setBlogImagePreview(''); setBlogImage(null); }}
+                          style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem', color: '#dc2626', borderColor: '#fca5a5' }}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                        No image selected — a default cover will be used.
+                      </span>
+                    )}
+                  </div>
+                  <small style={{ color: 'var(--color-text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                    This image is shown as the blog card cover and as the article banner background.
+                  </small>
+                </div>
+
                 <button type="submit" className="btn btn-primary form-submit-btn">
                   Publish Blog Post
                 </button>
@@ -1756,6 +2277,21 @@ export default function Admin() {
               </p>
 
               <form onSubmit={handleCatalogSubmit}>
+                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                  <label className="form-label">Catalog Title *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. Kresko Chemicals Product Catalogue 2025"
+                    value={catalogTitle}
+                    onChange={(e) => setCatalogTitle(e.target.value)}
+                    required
+                  />
+                  <small style={{ color: 'var(--color-text-muted)', display: 'block', marginTop: '0.5rem' }}>
+                    This title will be displayed on the Resources page and catalog download buttons.
+                  </small>
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">Catalog File (Upload PDF)</label>
                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -1816,7 +2352,7 @@ export default function Admin() {
 
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <button type="submit" className="btn btn-primary" style={{ fontWeight: '700' }}>
-                    Save Catalog Config
+                    Add Catalog to Resources
                   </button>
                   
                   {(catalogPdf || catalogUrl) && (
@@ -1837,6 +2373,39 @@ export default function Admin() {
                   </div>
                 )}
               </form>
+
+              <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: '2rem 0' }} />
+              <div>
+                <h4 style={{ color: 'var(--color-primary)', marginBottom: '1rem' }}>
+                  <i className="fa-solid fa-list" style={{ marginRight: '0.5rem', color: 'var(--color-accent)' }}></i>
+                  Saved Catalogs ({savedCatalogs.length}) — shown on the Resources page
+                </h4>
+                {savedCatalogs.length === 0 ? (
+                  <p style={{ color: 'var(--color-text-muted)', fontSize: '0.88rem', margin: 0 }}>
+                    No catalogs saved yet. Use the form above to add catalogs — each upload is <strong>added</strong>, never replaces the previous ones.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {savedCatalogs.map((cat, idx) => {
+                      const size = cat.fileSize ? `${(cat.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'Link';
+                      return (
+                        <div key={cat.id || idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 1rem', backgroundColor: 'var(--color-bg-white)', border: '1px solid var(--color-border)', borderRadius: '8px', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <i className="fa-solid fa-file-pdf" style={{ color: 'var(--color-accent)', fontSize: '1.25rem' }}></i>
+                            <div>
+                              <div style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{cat.title}</div>
+                              <small style={{ color: 'var(--color-text-muted)' }}>PDF Document | {size}</small>
+                            </div>
+                          </div>
+                          <button type="button" onClick={() => handleDeleteCatalog(cat.id)} className="btn btn-secondary" style={{ padding: '0.3rem 0.75rem', fontSize: '0.7rem', textTransform: 'none', borderRadius: '4px', color: '#dc2626', borderColor: '#fca5a5' }}>
+                            <i className="fa-solid fa-trash" style={{ marginRight: '0.3rem' }}></i> Delete
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

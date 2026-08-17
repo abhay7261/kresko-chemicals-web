@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getReviews, getProducts, getBlogs, saveEnquiry } from '../utils/storage';
+import { getReviews, getProducts, getBlogs, saveEnquiry, getHeroSlides, getProductCategories } from '../utils/storage';
 import ProductImage from '../components/ProductImage';
 import EditableText from '../components/EditableText';
 import FaqSection from '../components/FaqSection';
@@ -8,26 +8,8 @@ import FaqSection from '../components/FaqSection';
 export default function Home() {
   // Hero Slide State
   const [currentSlide, setCurrentSlide] = useState(0);
-  const slides = [
-    {
-      image: '/images/photo-1528218609959-006f98e6b79e.jpeg',
-      tag: 'B2B Chemical Concentrates',
-      title: 'High-Performance Cleaning Concentrates',
-      desc: 'Dilute up to 30X with plain water. Formulated for bulk repackagers, facility networks, and brand owners seeking massive freight and packaging savings.'
-    },
-    {
-      image: '/images/photo-1561383621-d109918107aa.jpeg',
-      tag: 'OEM & Private Label',
-      title: 'Build Your Own Cleaning Product Brand',
-      desc: 'We support custom formulation development, raw compounding, safety compliance certifications, and logistics for domestic and export markets.'
-    },
-    {
-      image: '/images/photo-1503547490235-0d6d87990308.jpeg',
-      tag: 'Eco-Friendly Sanitation',
-      title: 'Pine Oil & Citronella Floor Concentrates',
-      desc: 'Milky white phenyl PVL bases and herbal sanitizers. Powerful microbial elimination, pleasant fragrances, and natural insect repellent protection.'
-    }
-  ];
+  // Load hero slides from the admin-editable config (falls back to defaults).
+  const [slides] = useState(() => getHeroSlides());
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -36,15 +18,8 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [slides.length]);
 
-  // Featured Categories
-  const featuredCategories = [
-    { id: 'home-care', name: 'Home Care', icon: 'fa-house-chimney', desc: 'White phenyls, black phenyls, and multipurpose concentrates.', image: '/images/home_care_bg.png' },
-    { id: 'laundry-care', name: 'Laundry Care', icon: 'fa-shirt', desc: 'Liquid laundry soaps, whiteners, and fabric softeners.', image: '/images/laundry_care_bg.png' },
-    { id: 'kitchen-care', name: 'Kitchen Care', icon: 'fa-utensils', desc: 'Grease-stripping dishwash bases and chimney cleaners.', image: '/images/kitchen_care_bg.png' },
-    { id: 'floor-care', name: 'Floor Care', icon: 'fa-brush', desc: 'Daily floor washes and natural pine-citronella sanitizers.', image: '/images/floor_care_bg.png' },
-    { id: 'bathroom-care', name: 'Bathroom Care', icon: 'fa-toilet', desc: 'Bowl cleaners, scale removers, and acid-free daily washes.', image: '/images/bathroom_care_bg.png' },
-    { id: 'personal-care', name: 'Personal Care', icon: 'fa-hand-holding-droplet', desc: 'Liquid/powder hand wash bases, shower gels, and shampoos.', image: '/images/personal_care_bg.png' }
-  ];
+  // Category showcase on homepage (driven by the real catalog from storage)
+  const [homeCategories, setHomeCategories] = useState(Object.entries(getProductCategories()));
 
   // Industries Served Details
   const industries = [
@@ -68,11 +43,21 @@ export default function Home() {
   // Reviews and Blogs
   const [testimonials, setTestimonials] = useState([]);
   const [recentBlogs, setRecentBlogs] = useState([]);
-  const [currentTestimonial, setCurrentTestimonial] = useState(0);
+    const [currentTestimonial, setCurrentTestimonial] = useState(0);
 
   useEffect(() => {
     setTestimonials(getReviews());
     setRecentBlogs(getBlogs().slice(0, 3));
+    // Load product categories for the homepage explorer.
+    setHomeCategories(Object.entries(getProductCategories()));
+  }, []);
+
+  // Refresh categories whenever the admin dashboard or backend sync
+  // adds or removes categories.
+  useEffect(() => {
+    const reloadCategories = () => setHomeCategories(Object.entries(getProductCategories()));
+    window.addEventListener('categoriesUpdated', reloadCategories);
+    return () => window.removeEventListener('categoriesUpdated', reloadCategories);
   }, []);
 
   useEffect(() => {
@@ -123,7 +108,7 @@ export default function Home() {
           {slides.map((slide, index) => (
             <div 
               key={index}
-              className="hero-slide"
+              className={slide.overlay === false ? 'hero-slide no-overlay' : 'hero-slide'}
               style={{ backgroundImage: `url(${slide.image})` }}
             >
               <div className="container">
@@ -164,7 +149,7 @@ export default function Home() {
       </section>
 
       {/* 2. Featured Category Solutions Range */}
-      <section className="section" style={{ backgroundColor: 'var(--color-bg-light)' }}>
+      <section className="section categories-section" style={{ backgroundColor: 'var(--color-bg-light)' }}>
         <div className="container">
           <div className="section-header">
             <h2>
@@ -175,51 +160,51 @@ export default function Home() {
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem' }}>
-            {featuredCategories.map(cat => (
-              <div 
-                key={cat.id} 
-                className="card-item category-bg-card" 
-                style={{ height: '380px' }}
-              >
-                {/* Background Image */}
-                <img 
-                  src={cat.image} 
-                  alt={cat.name} 
-                  className="category-card-bg-img"
-                />
-
-                {/* Frosted Glass Text Panel */}
-                <div className="category-card-panel">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.5rem' }}>
-                    <div style={{ 
-                      width: '32px', 
-                      height: '32px', 
-                      borderRadius: '4px', 
-                      backgroundColor: 'rgba(255, 255, 255, 0.15)', 
-                      color: '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.9rem'
-                    }}>
-                      <i className={`fa-solid ${cat.icon}`}></i>
-                    </div>
-                    <h3 style={{ fontSize: '1.15rem', color: '#fff', margin: 0, fontWeight: 700 }}>{cat.name} Concentrates</h3>
+                    <div className="categories-grid">
+            {homeCategories.map(([catKey, cat]) => {
+              const subCount = Object.keys(cat.subcategories || {}).length;
+              return (
+                <Link key={catKey} to={`/products/${catKey}`} className="category-card">
+                  <div className="category-card-header">
+                    <img
+                      src={cat.image || '/images/product_placeholder.jpg'}
+                      alt={cat.name}
+                      className="category-card-bg"
+                      onError={(e) => { e.currentTarget.src = '/images/product_placeholder.jpg'; }}
+                    />
+                    {subCount > 0 && (
+                      <span className="subcategory-badge">{subCount} subcategories</span>
+                    )}
                   </div>
-                  <p style={{ color: 'rgba(255, 255, 255, 0.82)', fontSize: '0.8rem', lineHeight: '1.45', marginBottom: '1rem', display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: '2.3rem' }}>
-                    {cat.desc}
-                  </p>
-                  <Link to={`/products/${cat.id}`} className="card-link" style={{ fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                    View Range <i className="fa-solid fa-arrow-right" style={{ marginLeft: '0.2rem', color: '#fff', fontSize: '0.7rem' }}></i>
-                  </Link>
-                </div>
-              </div>
-            ))}
+                  <div className="category-card-body">
+                    <div className="category-card-icon">
+                      <i className={`fa-solid ${cat.icon || 'fa-sparkles'}`}></i>
+                    </div>
+                    <h3 className="category-card-title">{cat.name}</h3>
+                    <p className="category-card-desc">
+                      {cat.desc || 'Premium B2B chemical concentrate formulation engineered for high dilution and freight optimization.'}
+                    </p>
+                    <div className="category-card-footer">
+                      <span className="explore-products">
+                        View Range <i className="fa-solid fa-arrow-right"></i>
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
 
+          {homeCategories.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--color-text-muted)', backgroundColor: 'var(--color-bg-white)', border: '1px dashed var(--color-border)', borderRadius: '8px' }}>
+              <i className="fa-solid fa-folder-open" style={{ fontSize: '2.5rem', color: 'var(--color-accent)', marginBottom: '1rem', display: 'block' }}></i>
+              <p style={{ fontWeight: 600, margin: '0 0 0.25rem', color: 'var(--color-primary)' }}>No categories in the catalog yet.</p>
+              <p style={{ fontSize: '0.85rem', margin: 0 }}>Categories added from the Admin panel will appear here automatically.</p>
+            </div>
+          )}
+
           <div style={{ textAlign: 'center', marginTop: '3.5rem' }}>
-            <Link to="/products" className="btn btn-secondary">View All 13 Categories</Link>
+            <Link to="/products" className="btn btn-secondary">View Full Catalogue</Link>
           </div>
         </div>
       </section>

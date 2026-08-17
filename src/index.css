@@ -554,8 +554,13 @@ a {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(105deg, rgba(27,42,71,0.95) 0%, rgba(27,42,71,0.7) 55%, rgba(27,42,71,0.1) 100%);
+  background: linear-gradient(105deg, rgba(15,23,42,0.55) 0%, rgba(15,23,42,0.35) 55%, rgba(15,23,42,0.05) 100%);
   z-index: 1;
+}
+
+/* Removes the overlay tint entirely when a slide opts out (see Admin > Home Content). */
+.hero-slide.no-overlay::before {
+  display: none;
 }
 
 .hero-content {
@@ -2632,5 +2637,201 @@ textarea.form-control {
   .company-feature-img-card img {
     height: 240px !important;
   }
+}
+
+
+/* ==========================================================================
+   PRODUCT CATEGORIES — PREMIUM EXPLORER CARDS
+   (Home "Explore Our Product Solutions" section)
+   ========================================================================== */
+
+/* Scoped section header spacing (50px below the header) */
+.categories-section .section-header {
+  margin-bottom: 3.125rem; /* 50px */
+}
+
+/* Responsive grid — 1 / 2 / 3 columns */
+.categories-grid {
+  display: grid;
+  grid-template-columns: 1fr;             /* mobile: 1 per row */
+  gap: 1.5rem;                            /* 24px */
+}
+
+@media (min-width: 768px) {
+  .categories-grid {
+    grid-template-columns: repeat(2, 1fr); /* tablet: 2 per row */
+    gap: 1.75rem;                         /* 28px */
+  }
+}
+
+@media (min-width: 1024px) {
+  .categories-grid {
+    grid-template-columns: repeat(3, 1fr); /* desktop: 3 per row */
+    gap: 2rem;                            /* 32px */
+  }
+}
+
+/* ---- Card shell: fixed height, equal-height premium cards ---- */
+.category-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 340px;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+  isolation: isolate;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.category-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.4);
+}
+
+/* ---- Full-bleed image layer ---- */
+.category-card-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* Dark gradient overlay above the image */
+.category-card-header::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.82),
+    rgba(0, 0, 0, 0.45) 55%,
+    rgba(0, 0, 0, 0.2)
+  );
+  pointer-events: none;
+}
+
+.category-card-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.category-card:hover .category-card-bg {
+  transform: scale(1.05);
+}
+
+/* ---- Subcategory badge ---- */
+.subcategory-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+}
+
+/* ---- Content pinned to the bottom, above the overlay ---- */
+.category-card-body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  color: #ffffff;
+}
+
+.category-card-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 1.15rem;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  margin-bottom: 0.85rem;
+}
+
+.category-card-title {
+  font-size: 1.5rem;   /* 24px */
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ffffff;
+  margin: 0 0 0.4rem 0;
+}
+
+.category-card-desc {
+  font-size: 0.9rem;   /* 14.4px */
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.8);   /* ~80% opacity */
+  margin: 0 0 1rem 0;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.category-card-footer {
+  margin-top: auto;
+}
+
+/* ---- "VIEW RANGE →" button ---- */
+.explore-products {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #ffffff;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding-bottom: 0.3rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.4);
+  transition: gap 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s ease;
+}
+
+.explore-products i {
+  font-size: 0.75rem;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.category-card:hover .explore-products {
+  gap: 0.8rem;
+  border-color: #ffffff;
+}
+
+.category-card:hover .explore-products i {
+  transform: translateX(3px);
 }
 

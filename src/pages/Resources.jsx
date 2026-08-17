@@ -1,30 +1,89 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { catalogApi, resolveFileUrl } from '../utils/api';
+import { getStoredCatalogs } from '../utils/storage';
 
 export default function Resources() {
   const [openFaq, setOpenFaq] = useState(null);
+  const [catalogs, setCatalogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [viewer, setViewer] = useState(null); // { title, url } for PDF preview
 
-  const handleDownloadResource = (title) => {
-    if (title === 'Corporate Product Catalogue') {
-      const storedPdf = localStorage.getItem('kresko_catalog_pdf');
-      const storedUrl = localStorage.getItem('kresko_catalog_url');
-      if (storedPdf) {
-        const link = document.createElement('a');
-        link.href = storedPdf;
-        link.download = 'Kresko_Chemicals_Catalog.pdf';
-        link.click();
-      } else if (storedUrl) {
-        window.open(storedUrl, '_blank');
-      } else {
-        alert('Corporate Product Catalogue file is not uploaded yet. You can request it or upload it via the Admin portal.');
+  useEffect(() => {
+    const fetchCatalogs = async () => {
+      try {
+        const data = await catalogApi.getAll();
+        // Filter only Catalogue type documents
+        const catalogDocs = data.filter(cat => cat.documentType === 'Catalogue');
+        setCatalogs(catalogDocs);
+      } catch (err) {
+        console.error('Failed to fetch catalogs:', err);
+      } finally {
+        setLoading(false);
       }
+    };
+    fetchCatalogs();
+  }, []);
+
+  const openViewer = (catalog) => {
+    if (!catalog) return;
+    const fileUrl = resolveFileUrl(catalog.file);
+    const link = fileUrl || catalog.pdfLink;
+    if (link) {
+      setViewer({ title: catalog.title || 'Product Catalogue', url: link });
     } else {
-      alert(`Technical Downloader: Fetching and packaging "${title}" from Kresko library...`);
+      alert('Product Catalogue file is not available yet. You can upload it via the Admin portal.');
     }
   };
 
+  const handleDownloadResource = (catalog) => {
+    if (!catalog) return;
+    const fileUrl = resolveFileUrl(catalog.file);
+    const link = fileUrl || catalog.pdfLink;
+    if (link) {
+      // For embedded base64 data-URL PDFs, force a real file download via a
+      // Blob/`<a download>` link. Opening a huge data URL in a new tab often
+      // results in a blank/white page, so we avoid that here.
+      if (String(link).startsWith('data:')) {
+        try {
+          const safeName = (catalog.title || 'catalog').replace(/[^\w\- ]+/g, '').trim() || 'catalog';
+          const a = document.createElement('a');
+          a.href = link;
+          a.download = `${safeName}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          return;
+        } catch (err) {
+          /* fall through to window.open */
+        }
+      }
+      window.open(link, '_blank');
+    } else {
+      alert('Product Catalogue file is not available yet. You can upload it via the Admin portal.');
+    }
+  };
+
+  // All locally-saved catalogs (added via the Admin "Manage Corporate
+  // Catalog PDF" form — stored as a list so multiple catalogs are supported).
+  // Shown alongside any catalogs synced from the backend.
+  const localCatalogs = getStoredCatalogs();
+
   const downloads = [
-    { title: 'Corporate Product Catalogue', type: 'PDF Document', size: '4.8 MB', icon: 'fa-file-pdf' },
+    ...localCatalogs.map(catalog => ({
+      title: catalog.title || 'Product Catalogue',
+      type: 'PDF Document',
+      size: catalog.fileSize ? `${(catalog.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'PDF Document',
+      icon: 'fa-file-pdf',
+      catalog: catalog
+    })),
+    ...catalogs.map(catalog => ({
+      title: catalog.title || 'Product Catalogue',
+      type: 'PDF Document',
+      size: catalog.fileSize ? `${(catalog.fileSize / (1024 * 1024)).toFixed(1)} MB` : 'PDF Document',
+      icon: 'fa-file-pdf',
+      catalog: catalog
+    })),
     { title: 'TDS (Technical Data Sheet) Template', type: 'PDF Document', size: '1.2 MB', icon: 'fa-file-pdf' },
     { title: 'SDS / MSDS (Safety Data Sheet) Template', type: 'PDF Document', size: '2.5 MB', icon: 'fa-file-pdf' }
   ];
@@ -87,13 +146,24 @@ export default function Resources() {
                 <div>
                   <h4 style={{ color: 'var(--color-primary)', fontSize: '1.05rem', margin: '0 0 0.25rem 0' }}>{d.title}</h4>
                   <small style={{ color: 'var(--color-text-muted)', display: 'block', marginBottom: '0.75rem' }}>{d.type} | {d.size}</small>
-                  <button 
-                    onClick={() => handleDownloadResource(d.title)}
-                    className="btn btn-secondary" 
-                    style={{ padding: '0.4rem 1rem', fontSize: '0.7rem', textTransform: 'none', borderRadius: '4px' }}
-                  >
-                    Download File <i className="fa-solid fa-arrow-down" style={{ marginLeft: '0.3rem' }}></i>
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {d.catalog && (
+                      <button
+                        onClick={() => openViewer(d.catalog)}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.4rem 1rem', fontSize: '0.7rem', textTransform: 'none', borderRadius: '4px' }}
+                      >
+                        <i className="fa-solid fa-eye" style={{ marginRight: '0.3rem' }}></i>Preview
+                      </button>
+                    )}
+                    <button
+                      onClick={() => d.catalog && handleDownloadResource(d.catalog)}
+                      className="btn btn-secondary"
+                      style={{ padding: '0.4rem 1rem', fontSize: '0.7rem', textTransform: 'none', borderRadius: '4px' }}
+                    >
+                      Download File <i className="fa-solid fa-arrow-down" style={{ marginLeft: '0.3rem' }}></i>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -159,6 +229,54 @@ export default function Resources() {
           <Link to="/blog" className="btn btn-primary" style={{ borderRadius: '30px' }}>Visit Our Blog</Link>
         </div>
       </section>
+
+      {/* PDF Preview Modal */}
+      {viewer && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            backgroundColor: 'rgba(15,23,42,0.78)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '2rem',
+          }}
+          onClick={() => setViewer(null)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '900px',
+              height: '90vh',
+              backgroundColor: '#ffffff',
+              borderRadius: '10px',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 30px 60px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--color-border)' }}>
+              <strong style={{ color: 'var(--color-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <i className="fa-solid fa-file-pdf" style={{ marginRight: '0.5rem', color: 'var(--color-accent)' }}></i>
+                {viewer.title}
+              </strong>
+              <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                <a href={viewer.url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '0.3rem 0.75rem', fontSize: '0.7rem', textTransform: 'none' }}>
+                  Open in new tab
+                </a>
+                <button type="button" onClick={() => setViewer(null)} className="btn btn-secondary" style={{ padding: '0.3rem 0.75rem', fontSize: '0.7rem', textTransform: 'none' }}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <iframe src={viewer.url} title={viewer.title} style={{ flex: 1, border: 'none', width: '100%' }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
